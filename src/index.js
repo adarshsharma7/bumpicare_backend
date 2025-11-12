@@ -1,58 +1,22 @@
+import app from "./app.js";
+import dotenv from "dotenv";
+import connect from "./db/dbConnection.js";
 
-import app from "./app.js"
-import dotenv from "dotenv"
-import connect from './db/dbConnection.js'
+dotenv.config({ path: "./.env" });
 
-dotenv.config({
-    path:'./.env'
-})
+const PORT = process.env.PORT || 4000;
 
-connect().then(()=>{
-  app.listen(process.env.PORT,()=>{
-    console.log(`server is running at port${process.env.PORT}`);
-  })
-})
-.catch((err)=>{
-    console.log("some errors to running",err);
-})
+(async () => {
+  try {
+    console.log("🟡 Starting server...");
+    await connect();
+    console.log("🟢 Database connected successfully.");
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-let app=express()
-
-;(async ()=>{
-    try {
-      await mongoose.connect(`${process.env.MONGODB_URL}/${DB_NAME}`)
-       app.on("error",(error)=>{
-        console.log("ERR",error);
-        throw error
-       })
-app.listen(process.env.PORT,()=>{
-    console.log(`the server is start at ${process.env.PORT} port`);
-    })
-
-    } catch (error) {
-        console.log("ERROR",error);
-        throw error;
-    }
-})()
-*/
+    app.listen(PORT, () => {
+      console.log(`✅ Server running on http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error("❌ Startup failed:", err.message);
+    process.exit(1);
+  }
+})();
