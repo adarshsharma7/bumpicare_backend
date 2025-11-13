@@ -16,24 +16,3 @@ connect()
     console.log("❌ Some error while running the server:", err);
   });
 
-/*
-let app=express()
-
-;(async ()=>{
-try {
-await mongoose.connect(${process.env.MONGODB_URL}/${DB_NAME})
-app.on("error",(error)=>{
-console.log("ERR",error);
-throw error
-})
-app.listen(process.env.PORT,()=>{
-console.log(the server is start at ${process.env.PORT} port);
-})
-
-} catch (error) {  
-    console.log("ERROR",error);  
-    throw error;  
-}
-
-})()
-*/
