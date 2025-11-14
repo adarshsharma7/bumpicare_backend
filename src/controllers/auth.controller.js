@@ -8,9 +8,9 @@ import { ApiError } from "../utils/ApiError.js";
 // ✅ Register Controller
 export const registerUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, phone, email, password } = req.body;
 
-    if (!name || !email || !password)
+    if (!name || !phone || !email || !password)
       return res.status(400).json({ success: false, message: "All fields required" });
 
     const existingUser = await User.findOne({ email });
@@ -18,7 +18,7 @@ export const registerUser = async (req, res) => {
       return res.status(400).json({ success: false, message: "User already exists" });
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hashedPassword });
+    const user = await User.create({ name, phone, email, password: hashedPassword });
 
     const token = await generateToken(user._id);
 

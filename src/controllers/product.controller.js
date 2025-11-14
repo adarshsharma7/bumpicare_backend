@@ -30,7 +30,6 @@ export const getAllProducts = asyncHandler(async (req, res) => {
 export const getSingleProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-
   const product = await Product.findById(id);
   if (!product) throw new ApiError(404, "Product not found");
 

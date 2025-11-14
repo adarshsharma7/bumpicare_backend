@@ -50,7 +50,7 @@ app.get("/", (req, res) => {
 res.status(200).json({ message: "Bumpicare API is running 🚀" });
 });
 
-// ✅ Global error handler (optional, best practice)
+// // ✅ Global error handler (optional, best practice)
 // app.use((err, req, res, next) => {
 //   console.error("💥 Error:", err.message);
 //   res.status(err.statusCode || 500).json({

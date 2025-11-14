@@ -12,7 +12,7 @@ export const getCurrentUser = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(authUser._id).select(
-    "name email address wishlist cart"
+    "name phone email address wishlist cart "
   );
 
   if (!user) {
@@ -45,11 +45,25 @@ export const addUserAddress = asyncHandler(async (req, res) => {
   if (!authUser) throw new ApiError(401, "Unauthorized");
 
   const newAddress = req.body;
+ 
   if (!newAddress || Object.keys(newAddress).length === 0)
     throw new ApiError(400, "Address data required");
 
   const user = await User.findById(authUser._id);
   if (!user) throw new ApiError(404, "User not found");
+
+  const isDuplicate = user.address.some(
+    (addr) =>
+      addr.addressLine.trim().toLowerCase() ===
+      newAddress.addressLine.trim().toLowerCase()
+  );
+
+  if (isDuplicate) {
+ 
+    return res
+      .status(200)
+      .json(new ApiResponse(200,user.address, "Address already saved"));
+  }
 
   user.address.push(newAddress);
   await user.save();
