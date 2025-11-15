@@ -16,6 +16,13 @@ dotenv.config({
 const app = express();
 
 // ============================================
+// 🔧 Trust Proxy - Required for Vercel/Heroku/Railway
+// ============================================
+
+// ✅ This is CRITICAL for rate limiting behind reverse proxies
+app.set('trust proxy', 1); // Trust first proxy (Vercel, Heroku, etc.)
+
+// ============================================
 // 📋 Rate Limiting - DoS Protection
 // ============================================
 
@@ -28,6 +35,10 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // ✅ Skip failed requests from rate limit count
+  skipFailedRequests: false,
+  // ✅ Skip successful requests from rate limit count
+  skipSuccessfulRequests: false,
 });
 
 // ============================================
@@ -93,12 +104,22 @@ const validateApiKey = (req, res, next) => {
   // ✅ Skip API key check for:
   // 1. Health check route
   // 2. ALL admin routes (they use JWT auth from web)
-  // 3. Public routes (if any)
+  // 3. Auth routes (login/register - used by both Flutter & Admin website)
+  // 4. Public routes (if any)
   
-  if (
-    req.path === "/" ||
-    req.path.startsWith("/api/admin")
-  ) {
+  const publicRoutes = [
+    "/",
+    "/api/admin",
+    "/api/auth/login",
+    "/api/auth/register"
+  ];
+
+  // Check if current path matches any public route
+  const isPublicRoute = publicRoutes.some(route => 
+    req.path === route || req.path.startsWith(route + "/")
+  );
+
+  if (isPublicRoute) {
     console.log(`✅ Skipping API key check for: ${req.path}`);
     return next();
   }
@@ -111,7 +132,12 @@ const validateApiKey = (req, res, next) => {
 
   // Check if API key is present and valid for non-admin routes
   if (!apiKey || apiKey !== validApiKey) {
-    console.log("❌ Invalid API Key attempt from:", req.ip, "Path:", req.path);
+    // Get real IP address (considering proxy)
+    const realIP = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    
+    console.log("❌ Invalid API Key attempt");
+    console.log("   IP:", realIP);
+    console.log("   Path:", req.path);
     console.log("   Origin:", req.headers.origin || "none");
     console.log("   User-Agent:", req.headers["user-agent"]?.substring(0, 50) || "none");
     
@@ -199,7 +225,11 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   console.error("💥 Error:", err.message);
-  console.error("Stack:", err.stack);
+  
+  // Don't log full stack trace in production
+  if (process.env.NODE_ENV !== "production") {
+    console.error("Stack:", err.stack);
+  }
   
   // CORS error
   if (err.message === "Not allowed by CORS") {
