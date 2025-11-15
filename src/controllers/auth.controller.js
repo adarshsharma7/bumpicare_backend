@@ -44,6 +44,7 @@ export const loginUser = async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
+ 
     if (!user) throw new ApiError(404, "User not found");
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -57,6 +58,14 @@ export const loginUser = async (req, res) => {
       email: user.email,
       role: user.role,
     };
+
+    // ✅ Cookie set for Web / Postman
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
 
     return res
       .status(200)

@@ -32,8 +32,10 @@ import productRoutes from "./routes/product.routes.js";
 import reviewRoutes from "./routes/review.routes.js";
 // import addressRoutes from "./routes/address.routes.js";
 import wishlistRoutes from "./routes/wishlist.routes.js";
+import adminRoutes  from "./routes/admin.routes.js";
 
 // ✅ Mount all routes under /api
+app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/cart", cartRoutes);
