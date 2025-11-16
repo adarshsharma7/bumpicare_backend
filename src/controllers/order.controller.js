@@ -51,6 +51,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     user: user._id,
     orderItems,
     shippingAddress,
+    note,
     paymentMethod: "COD",
     paymentStatus: "Pending",
     orderStatus: "Processing",
@@ -69,7 +70,7 @@ export const createOrder = asyncHandler(async (req, res) => {
 /* ------------------------------ CREATE SINGLE ORDER ------------------------------ */
 export const createSingleOrder = asyncHandler(async (req, res) => {
   const user = req.user;
-  const { productId, quantity, shippingAddress } = req.body;
+  const { productId, quantity, shippingAddress, note } = req.body;
 
   // ✅ Field validation
   if (!productId || !quantity || !shippingAddress) {
@@ -104,6 +105,7 @@ export const createSingleOrder = asyncHandler(async (req, res) => {
       },
     ],
     shippingAddress,
+    note,
     paymentMethod: "COD",
     paymentStatus: "Pending",
     orderStatus: "Processing",

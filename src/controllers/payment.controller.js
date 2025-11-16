@@ -47,6 +47,7 @@ export const verifyPayment = asyncHandler(async (req, res) => {
     productId,
     quantity,
     address,
+    note
   } = req.body;
 
   if (!address) throw new ApiError(400, "Shipping address required");
@@ -102,6 +103,7 @@ export const verifyPayment = asyncHandler(async (req, res) => {
     paymentStatus: "Paid",
     orderStatus: "Processing",
     totalAmount,
+    note,
     orderNumber: generateOrderNumber(),
     paymentId: razorpay_payment_id,
     razorpayOrderId: razorpay_order_id,
