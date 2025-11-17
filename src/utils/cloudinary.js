@@ -1,79 +1,38 @@
 import { v2 as cloudinary } from "cloudinary";
-import fs from "fs";
+import streamifier from "streamifier";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true,
 });
 
-// ✅ Upload Single File
-const uploadOnCloudinary = async (localfilepath) => {
-  try {
-    if (!localfilepath) return null;
-
-    // Upload file on cloudinary
-    const response = await cloudinary.uploader.upload(localfilepath, {
-      resource_type: "auto",
-      folder: "bumpicare", // Organize files in folder
-    });
-
-    // Delete local file after successful upload
-    fs.unlinkSync(localfilepath);
-    return response;
-  } catch (error) {
-    // Delete local file on error
-    if (fs.existsSync(localfilepath)) {
-      fs.unlinkSync(localfilepath);
-    }
-    console.error("Cloudinary upload error:", error);
-    return null;
-  }
-};
-
-// ✅ Upload Multiple Files (for product images)
-const uploadMultipleOnCloudinary = async (localFilePaths) => {
-  try {
-    if (!localFilePaths || localFilePaths.length === 0) return [];
-
-    const uploadPromises = localFilePaths.map((filePath) =>
-      cloudinary.uploader.upload(filePath, {
-        resource_type: "auto",
-        folder: "bumpicare/products",
-      })
+/**
+ * Uploads a file buffer to Cloudinary using upload_stream.
+ * Returns { url, public_id } on success.
+ */
+export function uploadBufferToCloudinary(buffer, folder = "reviews") {
+  console.log("Uploading in progress")
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve({ url: result.secure_url, public_id: result.public_id });
+      }
     );
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
+}
 
-    const responses = await Promise.all(uploadPromises);
-
-    // Delete all local files after upload
-    localFilePaths.forEach((filePath) => {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    });
-
-    return responses.map((res) => res.secure_url);
-  } catch (error) {
-    // Delete local files on error
-    localFilePaths.forEach((filePath) => {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    });
-    console.error("Cloudinary multiple upload error:", error);
-    return [];
-  }
-};
-
-// ✅ Delete Image from Cloudinary
-const deleteFromCloudinary = async (publicId) => {
+/**
+ * Delete image by public_id (optional)
+ */
+export async function deleteFromCloudinary(public_id) {
   try {
-    const response = await cloudinary.uploader.destroy(publicId);
-    return response;
-  } catch (error) {
-    console.error("Cloudinary delete error:", error);
-    return null;
+    await cloudinary.uploader.destroy(public_id);
+  } catch (e) {
+    console.warn("Cloudinary delete error:", e);
   }
-};
-
-export { uploadOnCloudinary, uploadMultipleOnCloudinary, deleteFromCloudinary };
+}
