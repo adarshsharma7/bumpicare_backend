@@ -5,6 +5,7 @@ import Category from "../models/category.model.js";
 import Review from "../models/review.model.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 // ==================== DASHBOARD ====================
 
@@ -118,6 +119,34 @@ export const getAllUsers = async (req, res) => {
   } catch (error) {
     console.error("Get users error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+// ==================== GET SINGLE PRODUCT ====================
+export const getSingleProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const product = await Product.findById(id).populate("category", "name");
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: product,
+    });
+  } catch (error) {
+    console.error("Get product error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -354,6 +383,186 @@ export const updateOrderStatusAdmin = async (req, res) => {
   }
 };
 
+// ==================== ADD PRODUCT ====================
+export const addProduct = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const {
+      name,
+      description,
+      price,
+      discountPrice,
+      category,
+      stock,
+      images,
+      brand,
+      colors,
+      sizes,
+      specifications,
+      keyInfo,
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !price || !category) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, price, and category are required",
+      });
+    }
+
+    // Create product
+    const product = await Product.create({
+      name,
+      description,
+      price,
+      discountPrice: discountPrice || null,
+      category,
+      stock: stock || 0,
+      images: images || [],
+      brand: brand || "Generic",
+      colors: colors || [],
+      sizes: sizes || [],
+      specifications: specifications || [],
+      keyInfo: keyInfo || [],
+      isActive: true,
+    });
+
+    // Populate category
+    await product.populate("category", "name");
+
+    return res.status(201).json({
+      success: true,
+      message: "Product added successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Add product error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
+};
+
+// ==================== UPDATE PRODUCT ====================
+export const updateProduct = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const { id } = req.params;
+
+    // Find product first
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Update only provided fields
+    const {
+      name,
+      description,
+      price,
+      discountPrice,
+      category,
+      stock,
+      images,
+      brand,
+      colors,
+      sizes,
+      specifications,
+      keyInfo,
+      isActive,
+    } = req.body;
+
+    // Update fields conditionally
+    if (name !== undefined) product.name = name;
+    if (description !== undefined) product.description = description;
+    if (price !== undefined) product.price = price;
+    if (discountPrice !== undefined) product.discountPrice = discountPrice;
+    if (category !== undefined) product.category = category;
+    if (stock !== undefined) product.stock = stock;
+    if (images !== undefined) product.images = images;
+    if (brand !== undefined) product.brand = brand;
+    if (colors !== undefined) product.colors = colors;
+    if (sizes !== undefined) product.sizes = sizes;
+    if (specifications !== undefined) product.specifications = specifications;
+    if (keyInfo !== undefined) product.keyInfo = keyInfo;
+    if (isActive !== undefined) product.isActive = isActive;
+
+    // Save updated product
+    await product.save();
+
+    // Populate category
+    await product.populate("category", "name");
+
+    return res.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      data: product,
+    });
+  } catch (error) {
+    console.error("Update product error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
+};
+
+// ==================== DELETE PRODUCT ====================
+export const deleteProduct = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const { id } = req.params;
+
+    const deleted = await Product.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Product deleted successfully",
+      data: null,
+    });
+  } catch (error) {
+    console.error("Delete product error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
+};
+
 // ==================== CATEGORIES ====================
 
 // 📂 Get All Categories
@@ -433,7 +642,7 @@ export const deleteCategory = async (req, res) => {
     // Check if any products use this category
     const productsCount = await Product.countDocuments({ category: id });
     if (productsCount > 0) {
-      return res.status(400).json({
+      return res.status(200).json({
         success: false,
         message: `Cannot delete. ${productsCount} product(s) use this category`,
       });

@@ -3,28 +3,32 @@ import { verifyJWT, isAdmin } from "../middleware/auth.middleware.js";
 import {
   // Dashboard
   getDashboardStats,
-  
+
   // Users
   getAllUsers,
   getUserDetails,
   toggleUserStatus,
-  
+
   // Products
   getAdminProducts,
+  getSingleProduct,
+  addProduct,
+  updateProduct,
+  deleteProduct,
   toggleProductStatus,
   bulkUpdateStock,
-  
+
   // Orders
   getAdminOrders,
   getOrderDetails,
   updateOrderStatusAdmin,
-  
+
   // Categories
   getAllCategories,
   addCategory,
   updateCategory,
   deleteCategory,
-  
+
   // Reviews
   getAllReviews,
   deleteReview,
@@ -45,6 +49,10 @@ router.patch("/users/:id/toggle-status", toggleUserStatus);
 
 // ==================== PRODUCTS ====================
 router.get("/products", getAdminProducts);
+router.get("/product", getSingleProduct);
+router.post("/product/add", verifyJWT, addProduct);
+router.put("/product/:id", verifyJWT, updateProduct);
+router.delete("/product/:id", verifyJWT, deleteProduct);
 router.patch("/products/:id/toggle-status", toggleProductStatus);
 router.post("/products/bulk-update-stock", bulkUpdateStock);
 
