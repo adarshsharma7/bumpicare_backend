@@ -32,9 +32,11 @@ export const getDashboardStats = async (req, res) => {
     // ]);
 
     // Low stock products (stock < 10)
-    const lowStockProducts = await Product.find({ stock: { $lt: 10 } })
-      .select("name stock")
-      .limit(5);
+   const lowStockProducts = await Product.find({ stock: { $lt: 10 } })
+  .select("name stock images category seller")
+  .populate("category", "name")
+  .limit(5);
+
 
     // Recent orders (last 10)
     const recentOrders = await Order.find()
@@ -121,6 +123,8 @@ export const getDashboardStats = async (req, res) => {
     const shippedCount = await Order.countDocuments({ orderStatus: "Shipped" });
     const deliveredCount = await Order.countDocuments({ orderStatus: "Delivered" });
     const pendingCount = await Order.countDocuments({ orderStatus: "Pending" });
+    // const processingCount = await Order.countDocuments({ orderStatus: "Processing" });
+    // const cancelledCount = await Order.countDocuments({ orderStatus: "Cancelled" });
 
     // --- Stuck Orders (older than 5 days and not delivered) ---
     const fiveDaysAgo = new Date();
@@ -149,6 +153,8 @@ export const getDashboardStats = async (req, res) => {
       { label: "Shipped orders", count: shippedCount, color: "#3b82f6" },
       { label: "Delivered", count: deliveredCount, color: "#10b981" },
       { label: "Pending shipments", count: pendingCount, color: "#fbbf24" },
+      // { label: "Pending", count: pendingCount, color: "#fbbf24" },
+      // { label: "Cancelled", count: cancelledCount, color: "#ef4444" },
       { label: "Stuck orders", count: stuckOrders, color: "#1f2937" },
       { label: "Back Product", count: backProduct, color: "#f97316" }
     ];
