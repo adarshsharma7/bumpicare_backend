@@ -49,6 +49,7 @@ export const createOrder = asyncHandler(async (req, res) => {
 
   const order = await Order.create({
     user: user._id,
+    orderNumber: generateOrderNumber(),
     orderItems,
     shippingAddress,
     note,
@@ -56,7 +57,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     paymentStatus: "Pending",
     orderStatus: "Processing",
     totalAmount,
-    orderNumber: generateOrderNumber(),
+    
   });
 
   await Cart.findOneAndDelete({ user: user._id });
@@ -97,6 +98,7 @@ export const createSingleOrder = asyncHandler(async (req, res) => {
   // ✅ Create order
   const order = await Order.create({
     user: user._id,
+    orderNumber: generateOrderNumber(),
     orderItems: [
       {
         product: product._id,
@@ -110,7 +112,7 @@ export const createSingleOrder = asyncHandler(async (req, res) => {
     paymentStatus: "Pending",
     orderStatus: "Processing",
     totalAmount,
-    orderNumber: generateOrderNumber(),
+    
   });
 
   // ✅ Decrease stock

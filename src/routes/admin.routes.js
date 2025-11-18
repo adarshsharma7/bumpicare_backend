@@ -22,6 +22,8 @@ import {
   getAdminOrders,
   getOrderDetails,
   updateOrderStatusAdmin,
+  cancelOrderByAdmin,
+  getRecentOrders,
 
   // Categories
   getAllCategories,
@@ -58,8 +60,15 @@ router.post("/products/bulk-update-stock", bulkUpdateStock);
 
 // ==================== ORDERS ====================
 router.get("/orders", getAdminOrders);
+router.get("/orders/recent", verifyJWT, isAdmin, getRecentOrders);
 router.get("/orders/:id", getOrderDetails);
 router.patch("/orders/:id/status", updateOrderStatusAdmin);
+// CANCEL ORDER
+router.put("/order/cancel/:orderId", verifyJWT, isAdmin, cancelOrderByAdmin);
+
+
+
+
 
 // ==================== CATEGORIES ====================
 router.get("/categories", getAllCategories);

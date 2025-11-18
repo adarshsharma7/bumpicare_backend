@@ -3,6 +3,11 @@ import mongoose from "mongoose";
 const orderSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    orderNumber: {
+      type: String,
+      required: true,
+      unique: true,
+    },
     orderItems: [
       {
         product: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
@@ -21,7 +26,7 @@ const orderSchema = new mongoose.Schema(
     },
     paymentMethod: { type: String, enum: ["COD", "ONLINE"], default: "COD" },
     paymentStatus: { type: String, enum: ["Pending", "Paid", "Refund Initiated", "Refunded"], default: "Pending" },
-    
+
     // 🔽 New fields for Razorpay
     razorpayOrderId: { type: String },
     paymentId: { type: String },
@@ -35,6 +40,7 @@ const orderSchema = new mongoose.Schema(
     totalAmount: { type: Number, required: true },
     refundId: String,
     refundStatus: { type: String, default: null },
+
   },
   { timestamps: true }
 );

@@ -22,14 +22,14 @@ export const getDashboardStats = async (req, res) => {
     const totalRevenue = orders.reduce((sum, order) => sum + order.totalAmount, 0);
 
     // Orders by status
-    const ordersByStatus = await Order.aggregate([
-      {
-        $group: {
-          _id: "$orderStatus",
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    // const ordersByStatus = await Order.aggregate([
+    //   {
+    //     $group: {
+    //       _id: "$orderStatus",
+    //       count: { $sum: 1 },
+    //     },
+    //   },
+    // ]);
 
     // Low stock products (stock < 10)
     const lowStockProducts = await Product.find({ stock: { $lt: 10 } })
@@ -63,6 +63,193 @@ export const getDashboardStats = async (req, res) => {
       },
       { $sort: { _id: 1 } },
     ]);
+    // --- Country-wise Trend Calculation ---
+
+    // Dates
+    const now = new Date();
+    const firstDayCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const firstDayPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastDayPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    // Current month orders by country
+    const countryCurrentMonth = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: firstDayCurrentMonth },
+          paymentStatus: "Paid"
+        }
+      },
+      {
+        $group: {
+          _id: "$shippingAddress.country",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Previous month orders by country
+    const countryPrevMonth = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: firstDayPrevMonth, $lte: lastDayPrevMonth },
+          paymentStatus: "Paid"
+        }
+      },
+      {
+        $group: {
+          _id: "$shippingAddress.country",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Trend calculation
+    const ordersByCountry = countryCurrentMonth.map(curr => {
+      const prev = countryPrevMonth.find(p => p._id === curr._id)?.count || 0;
+      const trend = curr.count > prev ? "up" : curr.count < prev ? "down" : "same";
+
+      return {
+        country: curr._id,
+        currentOrders: curr.count,
+        previousOrders: prev,
+        trend
+      };
+    });
+
+    // ---------- Order Fulfillment Status Dynamic -----------
+
+    const shippedCount = await Order.countDocuments({ orderStatus: "Shipped" });
+    const deliveredCount = await Order.countDocuments({ orderStatus: "Delivered" });
+    const pendingCount = await Order.countDocuments({ orderStatus: "Pending" });
+
+    // --- Stuck Orders (older than 5 days and not delivered) ---
+    const fiveDaysAgo = new Date();
+    fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+
+    const stuckOrders = await Order.countDocuments({
+      createdAt: { $lte: fiveDaysAgo },
+      orderStatus: { $ne: "Delivered" }
+    });
+
+    // --- Back Product (items ordered but lower stock in product) ---
+    const allOrders = await Order.find().populate("orderItems.product");
+
+    let backProduct = 0;
+
+    allOrders.forEach(order => {
+      order.orderItems.forEach(item => {
+        if (item.quantity > (item.product?.stock || 0)) {
+          backProduct++;
+        }
+      });
+    });
+
+    // Return final formatted object
+    const orderFulfillment = [
+      { label: "Shipped orders", count: shippedCount, color: "#3b82f6" },
+      { label: "Delivered", count: deliveredCount, color: "#10b981" },
+      { label: "Pending shipments", count: pendingCount, color: "#fbbf24" },
+      { label: "Stuck orders", count: stuckOrders, color: "#1f2937" },
+      { label: "Back Product", count: backProduct, color: "#f97316" }
+    ];
+
+    // Revenue Growth
+    // This month revenue
+    const revenueCurrentMonth = await Order.aggregate([
+      { $match: { createdAt: { $gte: firstDayCurrentMonth }, paymentStatus: "Paid" } },
+      { $group: { _id: null, total: { $sum: "$totalAmount" } } }
+    ]);
+
+    // Previous month revenue
+    const revenuePrevMonth = await Order.aggregate([
+      { $match: { createdAt: { $gte: firstDayPrevMonth, $lte: lastDayPrevMonth }, paymentStatus: "Paid" } },
+      { $group: { _id: null, total: { $sum: "$totalAmount" } } }
+    ]);
+
+    const revCurr = revenueCurrentMonth[0]?.total || 0;
+    const revPrev = revenuePrevMonth[0]?.total || 0;
+
+    const revenueChange = revPrev === 0 ? 0 : ((revCurr - revPrev) / revPrev) * 100;
+
+    //Orders Growth
+    const ordersThisMonth = await Order.countDocuments({
+      createdAt: { $gte: firstDayCurrentMonth }
+    });
+    const ordersLastMonth = await Order.countDocuments({
+      createdAt: { $gte: firstDayPrevMonth, $lte: lastDayPrevMonth }
+    });
+
+    const ordersChange = ordersLastMonth === 0 ? 0 : ((ordersThisMonth - ordersLastMonth) / ordersLastMonth) * 100;
+
+    // user Growth
+    const usersThisMonth = await User.countDocuments({ createdAt: { $gte: firstDayCurrentMonth } });
+    const usersLastMonth = await User.countDocuments({ createdAt: { $gte: firstDayPrevMonth, $lte: lastDayPrevMonth } });
+
+    const usersChange = usersLastMonth === 0 ? 0 : ((usersThisMonth - usersLastMonth) / usersLastMonth) * 100;
+
+    //Product Growth
+    const productsThisMonth = await Product.countDocuments({ createdAt: { $gte: firstDayCurrentMonth } });
+    const productsLastMonth = await Product.countDocuments({ createdAt: { $gte: firstDayPrevMonth, $lte: lastDayPrevMonth } });
+
+    const productsChange = productsLastMonth === 0 ? 0 : ((productsThisMonth - productsLastMonth) / productsLastMonth) * 100;
+
+    // Order status list manually define (ensure all exist)
+    // ---- Time helpers ----
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+
+
+    // ---- Fetch all orders ----
+    const Orders = await Order.find().populate("orderItems.product");
+
+    // ---- Counts ----
+
+    // New Shipment = Shipped
+    const newShipment = Orders.filter(o => o.orderStatus === "Shipped").length;
+
+    // Processing = Pending Shipments
+    const processing = Orders.filter(o => o.orderStatus === "Processing").length;
+
+    // Delivered
+    const delivered = orders.filter(o => o.orderStatus === "Delivered").length;
+
+    // Cancelled
+    const cancelled = orders.filter(o => o.orderStatus === "Cancelled").length;
+
+    // Failed Delivery = shipped but not delivered for 7+ days
+    const failedDelivery = Orders.filter(o =>
+      o.orderStatus === "Shipped" &&
+      o.createdAt <= sevenDaysAgo
+    ).length;
+
+    // Returned = delivered + refund initiated
+    const returned = Orders.filter(o =>
+      o.orderStatus === "Delivered" &&
+      o.paymentStatus === "Refund Initiated"
+    ).length;
+
+    // Refunded = paymentStatus refunded
+    const refunded = Orders.filter(o =>
+      o.paymentStatus === "Refunded"
+    ).length;
+
+
+    // Final clean array (IN SAME ORDER as frontend)
+    const ordersByStatus = [
+      { status: "New Shipment", count: newShipment },
+      { status: "Processing", count: processing },
+      { status: "Delivered", count: delivered },
+      { status: "Cancelled", count: cancelled },
+      { status: "Failed Delivery", count: failedDelivery },
+      { status: "Pending shipments", count: pendingCount }, // same as processing
+      { status: "Returned", count: returned },
+      { status: "Refunded", count: refunded },
+      { status: "Stuck orders", count: stuckOrders }
+    ];
+
+
+
 
     res.status(200).json({
       success: true,
@@ -72,10 +259,19 @@ export const getDashboardStats = async (req, res) => {
         totalOrders,
         totalRevenue,
         ordersByStatus,
+        ordersByCountry,
+        orderFulfillment,
         lowStockProducts,
         recentOrders,
         revenueByDate,
+        growth: {
+          revenue: revenueChange,
+          orders: ordersChange,
+          users: usersChange,
+          products: productsChange,
+        },
       },
+
     });
   } catch (error) {
     console.error("Dashboard stats error:", error);
@@ -203,6 +399,56 @@ export const toggleUserStatus = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+export const getRecentOrders = async (req, res) => {
+  try {
+    const page = Number(req.query.page) || 1;
+    const limit = 10;
+    const skip = (page - 1) * limit;
+
+    const orders = await Order.find()
+      .populate("user", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Order.countDocuments();
+
+    res.json({
+      orders,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+// Admin: Cancel Order
+export const cancelOrderByAdmin = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (order.orderStatus === "Cancelled") {
+      return res.status(400).json({ message: "Already cancelled" });
+    }
+
+    order.orderStatus = "Cancelled";
+    await order.save();
+
+    res.json({ message: "Order cancelled successfully", order });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 
 // ==================== PRODUCTS ====================
 
