@@ -1,3 +1,7 @@
+// ============================================
+// 📁 models/user.model.js (UPDATED)
+// ============================================
+
 import mongoose from "mongoose";
 
 const addressSchema = new mongoose.Schema(
@@ -11,11 +15,10 @@ const addressSchema = new mongoose.Schema(
     addressLine: { type: String, required: true },
     selected: { type: Boolean, default: false },
   },
-  { _id: true } // ✅ ensures each address gets its own _id
+  { _id: true }
 );
 
 const userSchema = new mongoose.Schema(
-
   {
     name: { type: String, required: true },
     phone: { type: String, required: true },
@@ -24,10 +27,22 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ["user", "admin"], default: "user" },
     avatar: { type: String, default: "" },
 
+    // ✅ NEW: Subscription Reference
+    subscription: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "UserSubscription",
+      default: null
+    },
+    
+    // ✅ NEW: Quick access to current plan (denormalized for performance)
+    currentPlan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubscriptionPlan",
+      default: null
+    },
+
     // Addresses
-    address: [
-     addressSchema
-    ],
+    address: [addressSchema],
 
     wishlist: [
       {
@@ -42,10 +57,32 @@ const userSchema = new mongoose.Schema(
         quantity: { type: Number, default: 1 },
       },
     ],
-     isBlocked: { type: Boolean, default: false },
-
+    
+    isBlocked: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
+
+// ✅ Virtual to check if user has active subscription
+userSchema.virtual('hasActiveSubscription').get(function() {
+  return this.subscription != null && this.currentPlan != null;
+});
+
+// ✅ Method to get subscription features
+userSchema.methods.getSubscriptionFeatures = async function() {
+  if (!this.currentPlan) return null;
+  
+  const SubscriptionPlan = mongoose.model('SubscriptionPlan');
+  const plan = await SubscriptionPlan.findById(this.currentPlan);
+  return plan?.features || null;
+};
+
+// ✅ Method to check if feature is accessible
+userSchema.methods.canAccessFeature = async function(featureName) {
+  const features = await this.getSubscriptionFeatures();
+  if (!features) return false;
+  
+  return features[featureName] === true || features[featureName] === -1;
+};
 
 export default mongoose.models.User || mongoose.model("User", userSchema);

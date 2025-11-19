@@ -165,6 +165,7 @@ import productRoutes from "./routes/product.routes.js";
 import reviewRoutes from "./routes/review.routes.js";
 import wishlistRoutes from "./routes/wishlist.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
+import subscriptionRoutes from "./routes/subscription.routes.js";
 
 // ============================================
 // ✅ Health Check Route (Before any middleware)
@@ -206,6 +207,7 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/wishlist", wishlistRoutes);
+app.use("/api/admin/subscription", subscriptionRoutes);
 
 // ============================================
 // ❌ 404 Handler - Route Not Found
