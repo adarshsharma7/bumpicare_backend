@@ -36,11 +36,11 @@ const router = Router();
 
 // Plans Management
 router.get("/plans", verifyJWT, isAdmin, getAllPlans);
-router.post("/admin/plans", verifyJWT, isAdmin, createPlan);
-router.put("/admin/plans/:id", verifyJWT, isAdmin, updatePlan);
+router.post("/plans", verifyJWT, isAdmin, createPlan);
+router.put("/plans/:id", verifyJWT, isAdmin, updatePlan);
 router.delete("/plans/:id", verifyJWT, isAdmin, deletePlan);
 router.patch("/:id/toggle", verifyJWT, isAdmin, togglePlanStatus);
-router.patch("plans/:id/set-default", verifyJWT, isAdmin, setDefaultPlan);
+router.patch("/plans/:id/set-default", verifyJWT, isAdmin, setDefaultPlan);
 
 // User Subscriptions Management
 router.get("/user-subscriptions", verifyJWT, isAdmin, getAllUserSubscriptions);
@@ -48,10 +48,10 @@ router.post("/assign-subscription", verifyJWT, isAdmin, assignSubscriptionToUser
 router.patch("/cancel-subscription/:userId", verifyJWT, isAdmin, cancelUserSubscription);
 
 // Features Management
-router.get("/admin/features", verifyJWT, isAdmin, getAllFeatures);
-router.post("/admin/features", verifyJWT, isAdmin, createFeature);
-router.put("/admin/features/:id", verifyJWT, isAdmin, updateFeature);
-router.delete("/admin/features/:id", verifyJWT, isAdmin, deleteFeature);
+router.get("/features", verifyJWT, isAdmin, getAllFeatures);
+router.post("/features", verifyJWT, isAdmin, createFeature);
+router.put("/features/:id", verifyJWT, isAdmin, updateFeature);
+router.delete("/features/:id", verifyJWT, isAdmin, deleteFeature);
 
 // ==================== USER ROUTES ====================
 

@@ -62,9 +62,9 @@ router.post("/products/bulk-update-stock", bulkUpdateStock);
 router.get("/orders", getAdminOrders);
 router.get("/orders/recent", verifyJWT, isAdmin, getRecentOrders);
 router.get("/orders/:id", getOrderDetails);
-router.patch("/orders/:id/status", updateOrderStatusAdmin);
+router.put("/orders/:id/status", updateOrderStatusAdmin);
 // CANCEL ORDER
-router.put("/order/cancel/:orderId", verifyJWT, isAdmin, cancelOrderByAdmin);
+router.put("/order/:orderId/cancel", verifyJWT, isAdmin, cancelOrderByAdmin);
 
 
 

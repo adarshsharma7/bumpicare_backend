@@ -165,7 +165,8 @@ import productRoutes from "./routes/product.routes.js";
 import reviewRoutes from "./routes/review.routes.js";
 import wishlistRoutes from "./routes/wishlist.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
-import subscriptionRoutes from "./routes/subscription.routes.js";
+import subscriptionAdminRoutes from "./routes/subscriptionAdmin.routes.js";
+import subscriptionRoutes from "./routes/subscriptionUser.routes.js";
 
 // ============================================
 // ✅ Health Check Route (Before any middleware)
@@ -185,7 +186,7 @@ app.get("/", (req, res) => {
 // ============================================
 
 // 1. Rate limiting to all API routes
-app.use("/api/", limiter);
+// app.use("/api/", limiter);
 
 // 2. API Key validation (will skip admin routes internally)
 app.use(validateApiKey);
@@ -207,7 +208,8 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/wishlist", wishlistRoutes);
-app.use("/api/admin/subscription", subscriptionRoutes);
+app.use("/api/admin/subscription", subscriptionAdminRoutes);
+app.use("/api/subscription", subscriptionRoutes);
 
 // ============================================
 // ❌ 404 Handler - Route Not Found

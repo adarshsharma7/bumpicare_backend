@@ -331,6 +331,32 @@ export const deleteFeature = asyncHandler(async (req, res) => {
 
 // ==================== USER CONTROLLERS ====================
 
+
+export const checkWishlistLimit = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  const subscription = await UserSubscription.findOne({ user: userId })
+    .populate("currentPlan");
+
+  if (!subscription) {
+    return res.status(200).json(
+      new ApiResponse(200, {
+        allowed: false,
+        maxWishlistItems: 10,  // default free plan
+      }, "No subscription found")
+    );
+  }
+
+  const maxItems = subscription.currentPlan?.features?.maxWishlistItems ?? 10;
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      allowed: true,
+      maxWishlistItems: maxItems,
+    }, "Wishlist limit fetched")
+  );
+});
+
 // Get all active plans (Public/User)
 export const getActivePlans = asyncHandler(async (req, res) => {
   const plans = await SubscriptionPlan.find({ isActive: true })
@@ -341,6 +367,32 @@ export const getActivePlans = asyncHandler(async (req, res) => {
     new ApiResponse(200, plans, "Active plans fetched successfully")
   );
 });
+
+export const checkCartLimit = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  const subscription = await UserSubscription.findOne({ user: userId })
+    .populate("currentPlan");
+
+  if (!subscription) {
+    return res.status(200).json(
+      new ApiResponse(200, {
+        allowed: false,
+        maxCartItems: 5,  // free plan limit
+      }, "No subscription found")
+    );
+  }
+
+  const maxItems = subscription.currentPlan?.features?.maxCartItems ?? 5;
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      allowed: true,
+      maxCartItems: maxItems,
+    }, "Cart limit fetched")
+  );
+});
+
 
 // Get my subscription (User)
 export const getMySubscription = asyncHandler(async (req, res) => {
@@ -431,5 +483,37 @@ export const subscribeToPlan = asyncHandler(async (req, res) => {
 
   return res.status(200).json(
     new ApiResponse(200, subscription, "Subscription activated successfully")
+  );
+});
+
+export const updateUsage = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { cartCount, wishlistCount, ordersCount } = req.body;
+
+  const sub = await UserSubscription.findOne({ user: userId, status: "active" });
+
+  if (!sub) {
+    return res.status(200).json(
+      new ApiResponse(200, null, "No active subscription")
+    );
+  }
+
+  // Update only provided values
+  if (typeof cartCount === "number") {
+    sub.usage.cartItemsUsed = cartCount;
+  }
+
+  if (typeof wishlistCount === "number") {
+    sub.usage.wishlistItemsUsed = wishlistCount;
+  }
+
+  if (typeof ordersCount === "number") {
+    sub.usage.ordersThisMonth = ordersCount;
+  }
+
+  await sub.save();
+
+  return res.status(200).json(
+    new ApiResponse(200, sub.usage, "Usage updated successfully")
   );
 });
