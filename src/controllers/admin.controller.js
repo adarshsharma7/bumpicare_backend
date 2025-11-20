@@ -218,11 +218,10 @@ export const getDashboardStats = async (req, res) => {
     const processing = Orders.filter(o => o.orderStatus === "Processing").length;
 
     // Delivered
-    const delivered = orders.filter(o => o.orderStatus === "Delivered").length;
+    const delivered = Orders.filter(o => o.orderStatus === "Delivered").length;
 
     // Cancelled
-    const cancelled = orders.filter(o => o.orderStatus == "Cancelled").length;
-    console.log("cancelled ",cancelled)
+    const cancelled = Orders.filter(o => o.orderStatus == "Cancelled").length;
 
     // Failed Delivery = shipped but not delivered for 7+ days
     const failedDelivery = Orders.filter(o =>
