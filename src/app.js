@@ -231,9 +231,9 @@ app.use((err, req, res, next) => {
   console.error("💥 Error:", err.message);
   
   // Don't log full stack trace in production
-  if (process.env.NODE_ENV !== "production") {
-    console.error("Stack:", err.stack);
-  }
+  // if (process.env.NODE_ENV !== "production") {
+  //   console.error("Stack:", err.stack);
+  // }
   
   // CORS error
   if (err.message === "Not allowed by CORS") {

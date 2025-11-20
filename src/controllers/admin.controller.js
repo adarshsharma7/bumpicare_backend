@@ -221,7 +221,8 @@ export const getDashboardStats = async (req, res) => {
     const delivered = orders.filter(o => o.orderStatus === "Delivered").length;
 
     // Cancelled
-    const cancelled = orders.filter(o => o.orderStatus === "Cancelled").length;
+    const cancelled = orders.filter(o => o.orderStatus == "Cancelled").length;
+    console.log("cancelled ",cancelled)
 
     // Failed Delivery = shipped but not delivered for 7+ days
     const failedDelivery = Orders.filter(o =>
@@ -237,7 +238,7 @@ export const getDashboardStats = async (req, res) => {
 
     // Refunded = paymentStatus refunded
     const refunded = Orders.filter(o =>
-      o.paymentStatus === "Refunded"
+      o.refundStatus == "Refund Initiated"
     ).length;
 
 
