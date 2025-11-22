@@ -3,9 +3,17 @@ import Product from "../models/product.model.js";
 import Order from "../models/order.model.js";
 import Category from "../models/category.model.js";
 import Review from "../models/review.model.js";
+import Seller from "../models/seller.model.js";
+import Tag from "../models/tag.model.js";
+import ProductType from "../models/productType.model.js";
+import OrderRequest from '../models/OrderRequest.js';
+import Warehouse from '../models/Warehouse.js';
+import Supplier from '../models/Supplier.js';
+import InventoryMovement from '../models/InventoryMovement.js';
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import mongoose from "mongoose";
 
 // ==================== DASHBOARD ====================
 
@@ -32,10 +40,10 @@ export const getDashboardStats = async (req, res) => {
     // ]);
 
     // Low stock products (stock < 10)
-   const lowStockProducts = await Product.find({ stock: { $lt: 10 } })
-  .select("name stock images category seller")
-  .populate("category", "name")
-  .limit(5);
+    const lowStockProducts = await Product.find({ stock: { $lt: 10 } })
+      .select("name stock images category seller")
+      .populate("category", "name")
+      .limit(5);
 
 
     // Recent orders (last 10)
@@ -254,9 +262,6 @@ export const getDashboardStats = async (req, res) => {
       { status: "Stuck orders", count: stuckOrders }
     ];
 
-
-
-
     res.status(200).json({
       success: true,
       data: {
@@ -326,29 +331,45 @@ export const getAllUsers = async (req, res) => {
 
 
 // ==================== GET SINGLE PRODUCT ====================
+
 export const getSingleProduct = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const product = await Product.findById(id).populate("category", "name");
+    const product = await Product.findById(id)
+      .populate('category', 'name')
+      .populate('seller', 'name shopName') // ✅ Seller fields
+      .populate('productType', 'name')     // ✅ ProductType
+      .populate('tags', 'name color');     // ✅ Tags with color
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found",
+        message: 'Product not found'
       });
     }
 
     return res.status(200).json({
       success: true,
-      data: product,
+      data: product
     });
   } catch (error) {
-    console.error("Get product error:", error);
+    console.error('Get product error:', error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: error.message || 'Internal server error'
     });
+  }
+};
+
+// GET list (simple)
+export const listProducts = async (req, res) => {
+  try {
+    const products = await Product.find().sort({ createdAt: -1 }).limit(200).populate('category', 'name');
+    return res.status(200).json({ success: true, data: products });
+  } catch (error) {
+    console.error('List products error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
   }
 };
 
@@ -459,29 +480,41 @@ export const cancelOrderByAdmin = async (req, res) => {
 // ==================== PRODUCTS ====================
 
 // 📦 Get All Products (Admin view with filters)
+// ==================== PRODUCTS ====================
+
+// 📦 Get All Products (Admin + Filters + Pagination)
 export const getAdminProducts = async (req, res) => {
   try {
-    const { search, category, isActive, page = 1, limit = 20 } = req.query;
+    let { search = "", category, isActive, page = 1, limit = 20 } = req.query;
+
+    page = Number(page);
+    limit = Number(limit);
+
     const query = {};
 
-    if (search) {
+    // 🔍 Search by name
+    if (search.trim() !== "") {
       query.name = { $regex: search, $options: "i" };
     }
 
-    if (category) {
+    // 🎯 Filter by category
+    if (category && category !== "all") {
       query.category = category;
     }
 
-    if (isActive !== undefined) {
+    // 🟢 Filter by active/inactive
+    if (isActive === "true" || isActive === "false") {
       query.isActive = isActive === "true";
     }
 
+    // 🎁 Fetch Products
     const products = await Product.find(query)
       .populate("category", "name")
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .skip((page - 1) * limit)
+      .limit(limit);
 
+    // 🔢 Count Total for Pagination
     const total = await Product.countDocuments(query);
 
     res.status(200).json({
@@ -489,24 +522,36 @@ export const getAdminProducts = async (req, res) => {
       data: products,
       pagination: {
         total,
-        page: Number(page),
-        pages: Math.ceil(total / limit),
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page * limit < total,
+        hasPreviousPage: page > 1,
       },
     });
+
   } catch (error) {
-    console.error("Get admin products error:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error("Admin get products error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 };
 
-// 🔄 Toggle Product Status (Active/Inactive)
+
+// 🔄 Toggle Product Status
 export const toggleProductStatus = async (req, res) => {
   try {
     const { id } = req.params;
+
     const product = await Product.findById(id);
 
     if (!product) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
     }
 
     product.isActive = !product.isActive;
@@ -515,20 +560,34 @@ export const toggleProductStatus = async (req, res) => {
     res.status(200).json({
       success: true,
       message: `Product ${product.isActive ? "activated" : "deactivated"} successfully`,
-      data: product,
+      data: {
+        _id: product._id,
+        isActive: product.isActive,
+      },
     });
   } catch (error) {
     console.error("Toggle product status error:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 };
+
 
 // 📊 Bulk Update Stock
 export const bulkUpdateStock = async (req, res) => {
   try {
-    const { updates } = req.body; // [{ productId, stock }, ...]
+    const { updates } = req.body; // [{ productId, stock }]
 
-    const bulkOps = updates.map((item) => ({
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No updates provided",
+      });
+    }
+
+    const bulkOps = updates.map(item => ({
       updateOne: {
         filter: { _id: item.productId },
         update: { $set: { stock: item.stock } },
@@ -541,9 +600,156 @@ export const bulkUpdateStock = async (req, res) => {
       success: true,
       message: "Stock updated successfully",
     });
+
   } catch (error) {
-    console.error("Bulk update stock error:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error("Bulk stock update error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// ==================== ADD PRODUCT ====================
+export const addProduct = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized. Admin access required.' });
+    }
+
+    const {
+      name,
+      slug,
+      description,
+      price,
+      discountPrice,
+      category,
+      stock,
+      images,
+      brand,
+      colors,
+      sizes,
+      specifications,
+      keyInfo,
+      sizeGuide,
+      seller,
+      variants,
+      discounts,
+      tags,
+      coverPhoto,
+      videos,
+      productType,
+      isActive,
+    } = req.body;
+
+    if (!name || !price || !category) {
+      return res.status(400).json({ success: false, message: 'Name, price, and category are required' });
+    }
+
+    const product = await Product.create({
+      name,
+      slug,
+      description,
+      price,
+      discountPrice: discountPrice || null,
+      category,
+      stock: stock || 0,
+      images: images || [],
+      coverPhoto: coverPhoto || '',
+      videos: videos || [],
+      brand: brand || 'Generic',
+      colors: colors || [],
+      sizes: sizes || [],
+      specifications: specifications || [],
+      keyInfo: keyInfo || [],
+      sizeGuide: sizeGuide || '',
+      seller: seller || null,
+      variants: variants || [],
+      discounts: discounts || [],
+      tags: tags || [],
+      productType: productType || null,
+      isActive: isActive !== undefined ? isActive : true,
+    });
+
+    await product.populate('category', 'name');
+
+    return res.status(201).json({ success: true, message: 'Product added successfully', data: product });
+  } catch (error) {
+    console.error('Add product error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
+  }
+};
+
+
+// ==================== UPDATE PRODUCT ====================
+export const updateProduct = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized. Admin access required.' });
+    }
+
+    const { id } = req.params;
+    const product = await Product.findById(id);
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    const payload = req.body;
+
+    // Update only provided fields
+    const allowed = [
+      'name', 'slug', 'description', 'price', 'discountPrice', 'category', 'stock',
+      'images', 'brand', 'colors', 'sizes', 'specifications', 'keyInfo', 'sizeGuide',
+      'seller', 'variants', 'discounts', 'tags', 'coverPhoto', 'videos', 'productType', 'isActive'
+    ];
+
+    allowed.forEach((key) => {
+      if (payload[key] !== undefined) product[key] = payload[key];
+    });
+
+    await product.save();
+    await product.populate('category', 'name');
+
+    return res.status(200).json({ success: true, message: 'Product updated successfully', data: product });
+  } catch (error) {
+    console.error('Update product error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
+  }
+};
+
+// ==================== DELETE PRODUCT ====================
+export const deleteProduct = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const { id } = req.params;
+
+    const deleted = await Product.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Product deleted successfully",
+      data: null,
+    });
+  } catch (error) {
+    console.error("Delete product error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -583,6 +789,162 @@ export const getAdminOrders = async (req, res) => {
     });
   } catch (error) {
     console.error("Get admin orders error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// 📊 Get Order Stats (for dashboard cards)
+export const getOrderStats = async (req, res) => {
+  try {
+    const total = await Order.countDocuments();
+    const pendingPayment = await Order.countDocuments({ paymentStatus: 'pending' });
+    const processing = await Order.countDocuments({ orderStatus: 'Processing' });
+    const shipped = await Order.countDocuments({ orderStatus: 'Shipped' });
+    const delivered = await Order.countDocuments({ orderStatus: 'Delivered' });
+    const cancelled = await Order.countDocuments({ orderStatus: 'Cancelled' });
+    const returned = await Order.countDocuments({ orderStatus: 'Returned' });
+    const failed = await Order.countDocuments({ orderStatus: 'Failed' });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total,
+        pendingPayment,
+        processing,
+        shipped,
+        delivered,
+        cancelled,
+        returned,
+        failed,
+      },
+    });
+  } catch (error) {
+    console.error("Get order stats error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// 📊 Get Order Chart Data
+export const getOrderChartData = async (req, res) => {
+  try {
+    const { period = '12months' } = req.query;
+
+    let startDate = new Date();
+    let groupByFormat;
+    let labels = [];
+
+    // Determine date range and grouping based on period
+    switch (period) {
+      case '24hours':
+        startDate.setHours(startDate.getHours() - 24);
+        groupByFormat = '%H:00'; // Group by hour
+        for (let i = 0; i < 24; i++) {
+          labels.push(`${i}:00`);
+        }
+        break;
+
+      case '7days':
+        startDate.setDate(startDate.getDate() - 7);
+        groupByFormat = '%Y-%m-%d'; // Group by day
+        const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date();
+          date.setDate(date.getDate() - i);
+          labels.push(daysOfWeek[date.getDay()]);
+        }
+        break;
+
+      case '30days':
+        startDate.setDate(startDate.getDate() - 30);
+        groupByFormat = '%Y-%m-%d'; // Group by day
+        for (let i = 29; i >= 0; i--) {
+          const date = new Date();
+          date.setDate(date.getDate() - i);
+          labels.push(date.getDate().toString());
+        }
+        break;
+
+      case '12months':
+      default:
+        startDate.setMonth(startDate.getMonth() - 12);
+        groupByFormat = '%Y-%m'; // Group by month
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        for (let i = 11; i >= 0; i--) {
+          const date = new Date();
+          date.setMonth(date.getMonth() - i);
+          labels.push(months[date.getMonth()]);
+        }
+        break;
+    }
+
+    // Aggregate orders data
+    const aggregatedData = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          orderStatus: { $ne: 'Cancelled' }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: groupByFormat, date: '$createdAt' }
+          },
+          earnings: { $sum: '$totalAmount' },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { _id: 1 }
+      }
+    ]);
+
+    // Map aggregated data to labels
+    const dataMap = {};
+    aggregatedData.forEach(item => {
+      dataMap[item._id] = {
+        earnings: item.earnings,
+        profits: Math.round(item.earnings * 0.3) // 30% profit margin
+      };
+    });
+
+    // Create chart data array
+    const chartData = labels.map((label, index) => {
+      let key;
+      const now = new Date();
+
+      switch (period) {
+        case '24hours':
+          key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          break;
+        case '7days':
+        case '30days':
+          const date = new Date();
+          date.setDate(date.getDate() - (labels.length - 1 - index));
+          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+          break;
+        case '12months':
+        default:
+          const monthDate = new Date();
+          monthDate.setMonth(monthDate.getMonth() - (labels.length - 1 - index));
+          key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
+          break;
+      }
+
+      return {
+        name: label,
+        earnings: dataMap[key]?.earnings || 0,
+        profits: dataMap[key]?.profits || 0
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: chartData,
+      period
+    });
+  } catch (error) {
+    console.error("Get order chart data error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -632,186 +994,6 @@ export const updateOrderStatusAdmin = async (req, res) => {
   } catch (error) {
     console.error("Update order status error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
-  }
-};
-
-// ==================== ADD PRODUCT ====================
-export const addProduct = async (req, res) => {
-  try {
-    const admin = req.user;
-
-    if (!admin || admin.role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Unauthorized. Admin access required.",
-      });
-    }
-
-    const {
-      name,
-      description,
-      price,
-      discountPrice,
-      category,
-      stock,
-      images,
-      brand,
-      colors,
-      sizes,
-      specifications,
-      keyInfo,
-    } = req.body;
-
-    // Validate required fields
-    if (!name || !price || !category) {
-      return res.status(400).json({
-        success: false,
-        message: "Name, price, and category are required",
-      });
-    }
-
-    // Create product
-    const product = await Product.create({
-      name,
-      description,
-      price,
-      discountPrice: discountPrice || null,
-      category,
-      stock: stock || 0,
-      images: images || [],
-      brand: brand || "Generic",
-      colors: colors || [],
-      sizes: sizes || [],
-      specifications: specifications || [],
-      keyInfo: keyInfo || [],
-      isActive: true,
-    });
-
-    // Populate category
-    await product.populate("category", "name");
-
-    return res.status(201).json({
-      success: true,
-      message: "Product added successfully",
-      data: product,
-    });
-  } catch (error) {
-    console.error("Add product error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal server error",
-    });
-  }
-};
-
-// ==================== UPDATE PRODUCT ====================
-export const updateProduct = async (req, res) => {
-  try {
-    const admin = req.user;
-
-    if (!admin || admin.role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Unauthorized. Admin access required.",
-      });
-    }
-
-    const { id } = req.params;
-
-    // Find product first
-    const product = await Product.findById(id);
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-    }
-
-    // Update only provided fields
-    const {
-      name,
-      description,
-      price,
-      discountPrice,
-      category,
-      stock,
-      images,
-      brand,
-      colors,
-      sizes,
-      specifications,
-      keyInfo,
-      isActive,
-    } = req.body;
-
-    // Update fields conditionally
-    if (name !== undefined) product.name = name;
-    if (description !== undefined) product.description = description;
-    if (price !== undefined) product.price = price;
-    if (discountPrice !== undefined) product.discountPrice = discountPrice;
-    if (category !== undefined) product.category = category;
-    if (stock !== undefined) product.stock = stock;
-    if (images !== undefined) product.images = images;
-    if (brand !== undefined) product.brand = brand;
-    if (colors !== undefined) product.colors = colors;
-    if (sizes !== undefined) product.sizes = sizes;
-    if (specifications !== undefined) product.specifications = specifications;
-    if (keyInfo !== undefined) product.keyInfo = keyInfo;
-    if (isActive !== undefined) product.isActive = isActive;
-
-    // Save updated product
-    await product.save();
-
-    // Populate category
-    await product.populate("category", "name");
-
-    return res.status(200).json({
-      success: true,
-      message: "Product updated successfully",
-      data: product,
-    });
-  } catch (error) {
-    console.error("Update product error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal server error",
-    });
-  }
-};
-
-// ==================== DELETE PRODUCT ====================
-export const deleteProduct = async (req, res) => {
-  try {
-    const admin = req.user;
-
-    if (!admin || admin.role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Unauthorized. Admin access required.",
-      });
-    }
-
-    const { id } = req.params;
-
-    const deleted = await Product.findByIdAndDelete(id);
-    if (!deleted) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Product deleted successfully",
-      data: null,
-    });
-  } catch (error) {
-    console.error("Delete product error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal server error",
-    });
   }
 };
 
@@ -982,3 +1164,1870 @@ export const deleteReview = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+
+// ======================================================
+// ✔ Get All Sellers
+// ======================================================
+export const getAllSellers = async (req, res) => {
+  try {
+    const sellers = await Seller.find().sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      sellers,
+    });
+  } catch (error) {
+    console.error("Get All Sellers Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch sellers",
+      error,
+    });
+  }
+};
+
+
+
+// ======================================================
+// ✔ Get Single Seller
+// ======================================================
+export const getSingleSeller = async (req, res) => {
+  try {
+    const seller = await Seller.findById(req.params.id);
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      seller,
+    });
+  } catch (error) {
+    console.error("Get Single Seller Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch seller",
+      error,
+    });
+  }
+};
+
+// -------------------------------------
+// ✔ Add Seller
+// -------------------------------------
+export const addSeller = async (req, res) => {
+  try {
+    const seller = await Seller.create(req.body);
+    return res.status(201).json({ message: "Seller created", seller });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to create seller" });
+  }
+};
+
+// -------------------------------------
+// ✔ Get All Sellers
+// -------------------------------------
+export const getSellers = async (req, res) => {
+  try {
+    const sellers = await Seller.find().sort({ createdAt: -1 });
+    return res.status(200).json({ sellers });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to fetch sellers" });
+  }
+};
+
+// -------------------------------------
+// ✔ Get Single Seller
+// -------------------------------------
+export const getSellerById = async (req, res) => {
+  try {
+    const seller = await Seller.findById(req.params.id);
+
+    if (!seller) {
+      return res.status(404).json({ message: "Seller not found" });
+    }
+
+    return res.status(200).json({ seller });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to fetch seller" });
+  }
+};
+
+// -------------------------------------
+// ✔ Update Seller
+// -------------------------------------
+export const updateSeller = async (req, res) => {
+  try {
+    const seller = await Seller.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+
+    if (!seller) {
+      return res.status(404).json({ message: "Seller not found" });
+    }
+
+    return res.status(200).json({ message: "Seller updated", seller });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to update seller" });
+  }
+};
+
+// -------------------------------------
+// ✔ Approve / Suspend Seller
+// status = approved / suspended / pending
+// -------------------------------------
+export const updateSellerStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    if (!["approved", "suspended", "pending"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
+    const seller = await Seller.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true }
+    );
+
+    if (!seller) {
+      return res.status(404).json({ message: "Seller not found" });
+    }
+
+    return res.status(200).json({ message: "Status updated", seller });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to update seller status" });
+  }
+};
+
+
+
+// ======================================================
+// ✔ Delete Seller
+// ======================================================
+export const deleteSeller = async (req, res) => {
+  try {
+    const seller = await Seller.findByIdAndDelete(req.params.id);
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    // OPTIONAL: Unassign products from deleted seller
+    await Product.updateMany(
+      { seller: seller._id },
+      { $set: { seller: null } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Seller deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete Seller Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete seller",
+      error,
+    });
+  }
+};
+
+
+// -------------------------------------
+// ✔ Assign Products to Seller
+// req.body.products = [productIds]
+// -------------------------------------
+export const assignProductsToSeller = async (req, res) => {
+  try {
+    const sellerId = req.params.id;
+    const { products } = req.body;
+
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ message: "Products array required" });
+    }
+
+    // Assign seller to multiple products
+    await Product.updateMany(
+      { _id: { $in: products } },
+      { $set: { seller: sellerId } }
+    );
+
+    return res.status(200).json({
+      message: "Products assigned to seller successfully",
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to assign products" });
+  }
+};
+
+
+// ==================== TAGS ====================
+export const getAllTags = async (req, res) => {
+  try {
+    const tags = await Tag.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: tags });
+  } catch (error) {
+    console.error("Get tags error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const addTag = async (req, res) => {
+  try {
+    const { name, description, color } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ success: false, message: "Name is required" });
+    }
+
+    const existingTag = await Tag.findOne({ name });
+    if (existingTag) {
+      return res.status(400).json({ success: false, message: "Tag already exists" });
+    }
+
+    const tag = await Tag.create({ name, description, color });
+    res.status(201).json({ success: true, message: "Tag added successfully", data: tag });
+  } catch (error) {
+    console.error("Add tag error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const updateTag = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, color, isActive } = req.body;
+
+    const tag = await Tag.findByIdAndUpdate(
+      id,
+      { name, description, color, isActive },
+      { new: true, runValidators: true }
+    );
+
+    if (!tag) {
+      return res.status(404).json({ success: false, message: "Tag not found" });
+    }
+
+    res.status(200).json({ success: true, message: "Tag updated successfully", data: tag });
+  } catch (error) {
+    console.error("Update tag error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const deleteTag = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if any products use this tag
+    const productsCount = await Product.countDocuments({ tags: id });
+    if (productsCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete. ${productsCount} product(s) use this tag`,
+      });
+    }
+
+    const tag = await Tag.findByIdAndDelete(id);
+    if (!tag) {
+      return res.status(404).json({ success: false, message: "Tag not found" });
+    }
+
+    res.status(200).json({ success: true, message: "Tag deleted successfully" });
+  } catch (error) {
+    console.error("Delete tag error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// ==================== PRODUCT TYPES ====================
+export const getAllProductTypes = async (req, res) => {
+  try {
+    const productTypes = await ProductType.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: productTypes });
+  } catch (error) {
+    console.error("Get product types error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const addProductType = async (req, res) => {
+  try {
+    const { name, description, icon } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ success: false, message: "Name is required" });
+    }
+
+    const existingType = await ProductType.findOne({ name });
+    if (existingType) {
+      return res.status(400).json({ success: false, message: "Product type already exists" });
+    }
+
+    const productType = await ProductType.create({ name, description, icon });
+    res.status(201).json({
+      success: true,
+      message: "Product type added successfully",
+      data: productType
+    });
+  } catch (error) {
+    console.error("Add product type error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const updateProductType = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, icon, isActive } = req.body;
+
+    const productType = await ProductType.findByIdAndUpdate(
+      id,
+      { name, description, icon, isActive },
+      { new: true, runValidators: true }
+    );
+
+    if (!productType) {
+      return res.status(404).json({ success: false, message: "Product type not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Product type updated successfully",
+      data: productType
+    });
+  } catch (error) {
+    console.error("Update product type error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const deleteProductType = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if any products use this type
+    const productsCount = await Product.countDocuments({ productType: id });
+    if (productsCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete. ${productsCount} product(s) use this type`,
+      });
+    }
+
+    const productType = await ProductType.findByIdAndDelete(id);
+    if (!productType) {
+      return res.status(404).json({ success: false, message: "Product type not found" });
+    }
+
+    res.status(200).json({ success: true, message: "Product type deleted successfully" });
+  } catch (error) {
+    console.error("Delete product type error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+// ==================== GET STOCK SUMMARY ====================
+export const getStockSummary = async (req, res) => {
+  try {
+    const total = await Product.countDocuments();
+    const inStock = await Product.countDocuments({ stock: { $gt: 10 } });
+    const lowStock = await Product.countDocuments({ stock: { $gt: 0, $lte: 10 } });
+    const outOfStock = await Product.countDocuments({ stock: 0 });
+
+    res.json({
+      success: true,
+      data: { total, inStock, lowStock, outOfStock }
+    });
+  } catch (error) {
+    console.error('Stock summary error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to get stock summary'
+    });
+  }
+};
+
+// ==================== GET STOCK PRODUCTS ====================
+export const getStockProducts = async (req, res) => {
+  try {
+    let filter = {};
+
+    // Stock filters
+    if (req.query.stock === "low") filter.stock = { $gt: 0, $lte: 10 };
+    if (req.query.stock === "out") filter.stock = 0;
+    if (req.query.stock === "in") filter.stock = { $gt: 10 };
+
+    // Category filter
+    if (req.query.category && mongoose.Types.ObjectId.isValid(req.query.category)) {
+      filter.category = req.query.category;
+    }
+
+    // Status filter
+    if (req.query.status) {
+      filter.isActive = req.query.status === 'active';
+    }
+
+    // Search filter
+    if (req.query.search) {
+      filter.$or = [
+        { name: { $regex: req.query.search, $options: 'i' } },
+        { brand: { $regex: req.query.search, $options: 'i' } },
+      ];
+    }
+
+    const products = await Product.find(filter)
+      .populate("category", "name")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: products,
+      count: products.length
+    });
+  } catch (error) {
+    console.error('Get stock products error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to get stock products'
+    });
+  }
+};
+
+export const updateStock = async (req, res) => {
+  const { productId, quantity } = req.body;
+
+  const product = await Product.findById(productId);
+  product.quantity += quantity;
+
+  await product.save();
+
+  res.json({ success: true, message: "Stock updated successfully" });
+};
+
+
+// ==================== CREATE ORDER REQUEST ====================
+export const createOrderRequest = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const {
+      product,
+      quantity,
+      unit,
+      orderType,
+      priority,
+      supplier,
+      warehouse,
+      currentStock,
+      notes,
+    } = req.body;
+
+    // Validate required fields
+    if (!product || !quantity || !unit || !orderType || !priority || !supplier || !warehouse) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be provided",
+      });
+    }
+
+    // Validate product exists
+    if (!mongoose.Types.ObjectId.isValid(product)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const productExists = await Product.findById(product);
+    if (!productExists) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Create order request
+    const orderRequest = await OrderRequest.create({
+      product,
+      quantity,
+      unit,
+      orderType,
+      priority,
+      supplier,
+      warehouse,
+      currentStock: currentStock || productExists.stock,
+      requestedBy: admin._id,
+      notes: notes || "",
+      status: "pending",
+    });
+
+    await orderRequest.populate("product", "name images price");
+
+    return res.status(201).json({
+      success: true,
+      message: "Order request created successfully",
+      data: orderRequest,
+    });
+  } catch (error) {
+    console.error("Create order request error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
+};
+
+// ==================== GET ALL ORDER REQUESTS ====================
+export const getAllOrderRequests = async (req, res) => {
+  try {
+    const { status, priority, orderType } = req.query;
+
+    let filter = {};
+    if (status) filter.status = status;
+    if (priority) filter.priority = priority;
+    if (orderType) filter.orderType = orderType;
+
+    const orderRequests = await OrderRequest.find(filter)
+      .populate("product", "name images price category")
+      .populate("requestedBy", "name email")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: orderRequests,
+      count: orderRequests.length,
+    });
+  } catch (error) {
+    console.error("Get order requests error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
+};
+
+// ==================== UPDATE ORDER REQUEST STATUS ====================
+export const updateOrderRequestStatus = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order request ID",
+      });
+    }
+
+    const orderRequest = await OrderRequest.findById(id);
+    if (!orderRequest) {
+      return res.status(404).json({
+        success: false,
+        message: "Order request not found",
+      });
+    }
+
+    if (status) orderRequest.status = status;
+    if (notes) orderRequest.notes = notes;
+
+    // If approved, update product stock
+    if (status === "completed") {
+      const product = await Product.findById(orderRequest.product);
+      if (product) {
+        product.stock += orderRequest.quantity;
+        await product.save();
+      }
+    }
+
+    await orderRequest.save();
+    await orderRequest.populate("product", "name images price");
+
+    return res.status(200).json({
+      success: true,
+      message: "Order request updated successfully",
+      data: orderRequest,
+    });
+  } catch (error) {
+    console.error("Update order request error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
+};
+
+
+
+// ==================== GET ALL WAREHOUSES ====================
+export const getAllWarehouses = async (req, res) => {
+  try {
+    const { isActive, city, search } = req.query;
+
+    let filter = {};
+    if (isActive !== undefined) filter.isActive = isActive === 'true';
+    if (city) filter['location.city'] = { $regex: city, $options: 'i' };
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { warehouseId: { $regex: search, $options: 'i' } },
+        { 'location.city': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const warehouses = await Warehouse.find(filter)
+      .populate('manager', 'name email')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: warehouses,
+      count: warehouses.length,
+    });
+  } catch (error) {
+    console.error('Get warehouses error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET SINGLE WAREHOUSE ====================
+export const getSingleWarehouse = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid warehouse ID',
+      });
+    }
+
+    const warehouse = await Warehouse.findById(id).populate('manager', 'name email phone');
+
+    if (!warehouse) {
+      return res.status(404).json({
+        success: false,
+        message: 'Warehouse not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: warehouse,
+    });
+  } catch (error) {
+    console.error('Get warehouse error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== CREATE WAREHOUSE ====================
+export const createWarehouse = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const {
+      warehouseId,
+      name,
+      location,
+      capacity,
+      currentUtilization,
+      manager,
+      contactNumber,
+      operatingHours,
+    } = req.body;
+
+    // Validate required fields
+    if (!warehouseId || !name || !capacity) {
+      return res.status(400).json({
+        success: false,
+        message: 'Warehouse ID, name, and capacity are required',
+      });
+    }
+
+    // Check if warehouse ID already exists
+    const existingWarehouse = await Warehouse.findOne({ warehouseId });
+    if (existingWarehouse) {
+      return res.status(400).json({
+        success: false,
+        message: 'Warehouse with this ID already exists',
+      });
+    }
+
+    const warehouse = await Warehouse.create({
+      warehouseId: warehouseId.toUpperCase(),
+      name,
+      location,
+      capacity,
+      currentUtilization: currentUtilization || 0,
+      manager,
+      contactNumber,
+      operatingHours,
+      isActive: true,
+    });
+
+    await warehouse.populate('manager', 'name email');
+
+    return res.status(201).json({
+      success: true,
+      message: 'Warehouse created successfully',
+      data: warehouse,
+    });
+  } catch (error) {
+    console.error('Create warehouse error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== UPDATE WAREHOUSE ====================
+export const updateWarehouse = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid warehouse ID',
+      });
+    }
+
+    const warehouse = await Warehouse.findById(id);
+    if (!warehouse) {
+      return res.status(404).json({
+        success: false,
+        message: 'Warehouse not found',
+      });
+    }
+
+    // Update fields
+    const updateFields = [
+      'warehouseId', 'name', 'location', 'capacity', 'currentUtilization',
+      'manager', 'contactNumber', 'isActive', 'operatingHours'
+    ];
+
+    updateFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        warehouse[field] = req.body[field];
+      }
+    });
+
+    await warehouse.save();
+    await warehouse.populate('manager', 'name email');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Warehouse updated successfully',
+      data: warehouse,
+    });
+  } catch (error) {
+    console.error('Update warehouse error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== DELETE WAREHOUSE ====================
+export const deleteWarehouse = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid warehouse ID',
+      });
+    }
+
+    const warehouse = await Warehouse.findByIdAndDelete(id);
+
+    if (!warehouse) {
+      return res.status(404).json({
+        success: false,
+        message: 'Warehouse not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Warehouse deleted successfully',
+    });
+  } catch (error) {
+    console.error('Delete warehouse error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+
+// ==================== GET ALL SUPPLIERS ====================
+export const getAllSuppliers = async (req, res) => {
+  try {
+    const { isActive, search } = req.query;
+
+    let filter = {};
+    if (isActive !== undefined) filter.isActive = isActive === 'true';
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const suppliers = await Supplier.find(filter)
+      .populate('products', 'name images price')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: suppliers,
+      count: suppliers.length,
+    });
+  } catch (error) {
+    console.error('Get suppliers error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET SINGLE SUPPLIER ====================
+export const getSingleSupplier = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid supplier ID format',
+      });
+    }
+
+    const supplier = await Supplier.findById(id)
+      .populate('products', 'name images price stock category');
+
+    if (!supplier) {
+      return res.status(404).json({
+        success: false,
+        message: 'Supplier not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: supplier,
+    });
+  } catch (error) {
+    console.error('Get supplier error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== CREATE SUPPLIER ====================
+export const createSupplier = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const {
+      name,
+      email,
+      phone,
+      address,
+      contactPerson,
+      products,
+      rating,
+      paymentTerms,
+      deliveryTime,
+      notes,
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, email, and phone are required',
+      });
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email format',
+      });
+    }
+
+    // Check if supplier already exists
+    const existingSupplier = await Supplier.findOne({ email: email.toLowerCase() });
+    if (existingSupplier) {
+      return res.status(400).json({
+        success: false,
+        message: 'Supplier with this email already exists',
+      });
+    }
+
+    // Create supplier
+    const supplier = await Supplier.create({
+      name: name.trim(),
+      email: email.toLowerCase(),
+      phone,
+      address: address || {},
+      contactPerson: contactPerson || {},
+      products: products || [],
+      rating: rating || 0,
+      paymentTerms: paymentTerms || '',
+      deliveryTime: deliveryTime || '',
+      notes: notes || '',
+      isActive: true,
+    });
+
+    await supplier.populate('products', 'name images price');
+
+    return res.status(201).json({
+      success: true,
+      message: 'Supplier created successfully',
+      data: supplier,
+    });
+  } catch (error) {
+    console.error('Create supplier error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== UPDATE SUPPLIER ====================
+export const updateSupplier = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const { id } = req.params;
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid supplier ID format',
+      });
+    }
+
+    // Find supplier
+    const supplier = await Supplier.findById(id);
+    if (!supplier) {
+      return res.status(404).json({
+        success: false,
+        message: 'Supplier not found',
+      });
+    }
+
+    // Check if email is being changed and if it's already taken
+    if (req.body.email && req.body.email !== supplier.email) {
+      const emailExists = await Supplier.findOne({
+        email: req.body.email.toLowerCase(),
+        _id: { $ne: id }
+      });
+
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already in use by another supplier',
+        });
+      }
+    }
+
+    // Update fields
+    const updateFields = [
+      'name', 'email', 'phone', 'address', 'contactPerson',
+      'products', 'rating', 'isActive', 'paymentTerms', 'deliveryTime', 'notes'
+    ];
+
+    updateFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        if (field === 'name') {
+          supplier[field] = req.body[field].trim();
+        } else if (field === 'email') {
+          supplier[field] = req.body[field].toLowerCase();
+        } else {
+          supplier[field] = req.body[field];
+        }
+      }
+    });
+
+    await supplier.save();
+    await supplier.populate('products', 'name images price');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Supplier updated successfully',
+      data: supplier,
+    });
+  } catch (error) {
+    console.error('Update supplier error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== DELETE SUPPLIER ====================
+export const deleteSupplier = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const { id } = req.params;
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid supplier ID format',
+      });
+    }
+
+    const supplier = await Supplier.findByIdAndDelete(id);
+
+    if (!supplier) {
+      return res.status(404).json({
+        success: false,
+        message: 'Supplier not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Supplier deleted successfully',
+      data: {
+        id: supplier._id,
+        name: supplier.name,
+      }
+    });
+  } catch (error) {
+    console.error('Delete supplier error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+
+
+// ==================== INVENTORY CONTROLLER ====================
+// controllers/inventoryController.js
+
+// ==================== GET INVENTORY OVERVIEW STATS ====================
+export const getInventoryOverview = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    // Total Products
+    const totalProducts = await Product.countDocuments();
+
+    // Stock Status
+    const inStock = await Product.countDocuments({ stock: { $gt: 10 } });
+    const lowStock = await Product.countDocuments({ stock: { $gt: 0, $lte: 10 } });
+    const outOfStock = await Product.countDocuments({ stock: 0 });
+
+    // Total Stock Value
+    const stockValueResult = await Product.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalValue: { $sum: { $multiply: ['$price', '$stock'] } },
+          totalQuantity: { $sum: '$stock' }
+        }
+      }
+    ]);
+    const stockValue = stockValueResult[0] || { totalValue: 0, totalQuantity: 0 };
+
+    // Active Warehouses
+    const activeWarehouses = await Warehouse.countDocuments({ isActive: true });
+
+    // Total Warehouse Capacity
+    const warehouseStats = await Warehouse.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalCapacity: { $sum: '$capacity' },
+          totalUtilization: { $sum: '$currentUtilization' }
+        }
+      }
+    ]);
+    const warehouseData = warehouseStats[0] || { totalCapacity: 0, totalUtilization: 0 };
+    const utilizationPercentage = warehouseData.totalCapacity > 0
+      ? Math.round((warehouseData.totalUtilization / warehouseData.totalCapacity) * 100)
+      : 0;
+
+    // Active Suppliers
+    const activeSuppliers = await Supplier.countDocuments({ isActive: true });
+
+    // Pending Order Requests
+    const pendingOrders = await OrderRequest.countDocuments({ status: 'pending' });
+
+    // Recent Inventory Movements (Last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const recentMovements = await InventoryMovement.countDocuments({
+      createdAt: { $gte: thirtyDaysAgo }
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        overview: {
+          totalProducts,
+          totalStockQuantity: stockValue.totalQuantity,
+          totalStockValue: Math.round(stockValue.totalValue),
+          activeWarehouses,
+          activeSuppliers,
+          pendingOrders,
+          recentMovements
+        },
+        stockStatus: {
+          inStock,
+          lowStock,
+          outOfStock,
+          total: totalProducts
+        },
+        warehouseUtilization: {
+          totalCapacity: warehouseData.totalCapacity,
+          currentUtilization: warehouseData.totalUtilization,
+          availableSpace: warehouseData.totalCapacity - warehouseData.totalUtilization,
+          utilizationPercentage
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get inventory overview error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET LOW STOCK PRODUCTS ====================
+export const getLowStockProducts = async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+
+    const lowStockProducts = await Product.find({
+      stock: { $gt: 0, $lte: 10 }
+    })
+      .populate('category', 'name')
+      .sort({ stock: 1 })
+      .limit(parseInt(limit))
+      .select('name images stock price category brand');
+
+    return res.status(200).json({
+      success: true,
+      data: lowStockProducts,
+      count: lowStockProducts.length
+    });
+  } catch (error) {
+    console.error('Get low stock products error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET OUT OF STOCK PRODUCTS ====================
+export const getOutOfStockProducts = async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+
+    const outOfStockProducts = await Product.find({ stock: 0 })
+      .populate('category', 'name')
+      .sort({ updatedAt: -1 })
+      .limit(parseInt(limit))
+      .select('name images price category brand updatedAt');
+
+    return res.status(200).json({
+      success: true,
+      data: outOfStockProducts,
+      count: outOfStockProducts.length
+    });
+  } catch (error) {
+    console.error('Get out of stock products error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET TOP PRODUCTS BY STOCK VALUE ====================
+export const getTopProductsByValue = async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+
+    const topProducts = await Product.aggregate([
+      {
+        $addFields: {
+          stockValue: { $multiply: ['$price', '$stock'] }
+        }
+      },
+      { $sort: { stockValue: -1 } },
+      { $limit: parseInt(limit) },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'categoryInfo'
+        }
+      },
+      {
+        $project: {
+          name: 1,
+          images: 1,
+          price: 1,
+          stock: 1,
+          stockValue: 1,
+          brand: 1,
+          category: { $arrayElemAt: ['$categoryInfo.name', 0] }
+        }
+      }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: topProducts,
+      count: topProducts.length
+    });
+  } catch (error) {
+    console.error('Get top products error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET INVENTORY MOVEMENTS ====================
+export const getInventoryMovements = async (req, res) => {
+  try {
+    const {
+      limit = 20,
+      movementType,
+      warehouseId,
+      productId,
+      startDate,
+      endDate
+    } = req.query;
+
+    let filter = {};
+
+    if (movementType) filter.movementType = movementType;
+    if (warehouseId && mongoose.Types.ObjectId.isValid(warehouseId)) {
+      filter.warehouse = warehouseId;
+    }
+    if (productId && mongoose.Types.ObjectId.isValid(productId)) {
+      filter.product = productId;
+    }
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
+
+    const movements = await InventoryMovement.find(filter)
+      .populate('product', 'name images')
+      .populate('warehouse', 'name warehouseId')
+      .populate('performedBy', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
+
+    return res.status(200).json({
+      success: true,
+      data: movements,
+      count: movements.length
+    });
+  } catch (error) {
+    console.error('Get inventory movements error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== CREATE INVENTORY MOVEMENT ====================
+export const createInventoryMovement = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized. Admin access required.",
+      });
+    }
+
+    const {
+      productId,
+      warehouseId,
+      movementType,
+      quantity,
+      reason,
+      notes,
+      cost
+    } = req.body;
+
+    // Validate required fields
+    if (!productId || !warehouseId || !movementType || !quantity || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'All required fields must be provided',
+      });
+    }
+
+    // Get product
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found',
+      });
+    }
+
+    const previousStock = product.stock;
+    let newStock = previousStock;
+
+    // Calculate new stock based on movement type
+    if (movementType === 'in') {
+      newStock = previousStock + parseInt(quantity);
+    } else if (movementType === 'out' || movementType === 'damage') {
+      newStock = previousStock - parseInt(quantity);
+      if (newStock < 0) newStock = 0;
+    } else if (movementType === 'adjustment') {
+      newStock = parseInt(quantity);
+    }
+
+    // Create movement record
+    const movement = await InventoryMovement.create({
+      product: productId,
+      warehouse: warehouseId,
+      movementType,
+      quantity: parseInt(quantity),
+      previousStock,
+      newStock,
+      reason,
+      notes: notes || '',
+      cost: cost || 0,
+      performedBy: admin._id,
+      referenceType: 'manual'
+    });
+
+    // Update product stock
+    product.stock = newStock;
+    await product.save();
+
+    await movement.populate('product', 'name images');
+    await movement.populate('warehouse', 'name warehouseId');
+    await movement.populate('performedBy', 'name email');
+
+    return res.status(201).json({
+      success: true,
+      message: 'Inventory movement recorded successfully',
+      data: movement
+    });
+  } catch (error) {
+    console.error('Create inventory movement error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET STOCK TRENDS (Last 7 days) ====================
+export const getStockTrends = async (req, res) => {
+  try {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const trends = await InventoryMovement.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: sevenDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            type: '$movementType'
+          },
+          totalQuantity: { $sum: '$quantity' },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { '_id.date': 1 }
+      }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: trends
+    });
+  } catch (error) {
+    console.error('Get stock trends error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET CATEGORY WISE STOCK ====================
+export const getCategoryWiseStock = async (req, res) => {
+  try {
+    const categoryStock = await Product.aggregate([
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'categoryInfo'
+        }
+      },
+      {
+        $unwind: '$categoryInfo'
+      },
+      {
+        $group: {
+          _id: '$category',
+          categoryName: { $first: '$categoryInfo.name' },
+          totalProducts: { $sum: 1 },
+          totalStock: { $sum: '$stock' },
+          totalValue: { $sum: { $multiply: ['$price', '$stock'] } },
+          lowStockCount: {
+            $sum: {
+              $cond: [{ $and: [{ $gt: ['$stock', 0] }, { $lte: ['$stock', 10] }] }, 1, 0]
+            }
+          },
+          outOfStockCount: {
+            $sum: { $cond: [{ $eq: ['$stock', 0] }, 1, 0] }
+          }
+        }
+      },
+      {
+        $sort: { totalValue: -1 }
+      }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: categoryStock,
+      count: categoryStock.length
+    });
+  } catch (error) {
+    console.error('Get category wise stock error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// 📊 Get Sales Stats
+export const getSalesStats = async (req, res) => {
+  try {
+    // Get completed orders only
+    const completedOrders = await Order.find({ 
+      orderStatus: 'Delivered' 
+    });
+
+    const totalSales = completedOrders.reduce((sum, order) => sum + order.totalAmount, 0);
+    const totalOrders = completedOrders.length;
+    const averageOrder = totalOrders > 0 ? totalSales / totalOrders : 0;
+    
+    const refunded = await Order.countDocuments({ orderStatus: 'Returned' });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalSales: Math.round(totalSales),
+        totalOrders,
+        averageOrder: Math.round(averageOrder * 100) / 100,
+        refunded
+      }
+    });
+  } catch (error) {
+    console.error('Get sales stats error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 📈 Get Revenue Chart Data
+export const getRevenueChart = async (req, res) => {
+  try {
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - 12);
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    const revenueData = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          orderStatus: { $in: ['Delivered', 'Returned'] }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: '%Y-%m', date: '$createdAt' }
+          },
+          earning: {
+            $sum: {
+              $cond: [
+                { $eq: ['$orderStatus', 'Delivered'] },
+                '$totalAmount',
+                0
+              ]
+            }
+          },
+          refunds: {
+            $sum: {
+              $cond: [
+                { $eq: ['$orderStatus', 'Returned'] },
+                '$totalAmount',
+                0
+              ]
+            }
+          }
+        }
+      },
+      {
+        $sort: { _id: 1 }
+      }
+    ]);
+
+    const dataMap = {};
+    revenueData.forEach(item => {
+      dataMap[item._id] = {
+        earning: Math.round(item.earning),
+        refunds: Math.round(item.refunds)
+      };
+    });
+
+    const chartData = [];
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const month = months[date.getMonth()];
+      
+      chartData.push({
+        month,
+        earning: dataMap[key]?.earning || 0,
+        refunds: dataMap[key]?.refunds || 0
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: chartData
+    });
+  } catch (error) {
+    console.error('Get revenue chart error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 🌍 Get Top Countries By Sales
+export const getTopCountries = async (req, res) => {
+  try {
+    const topCountries = await Order.aggregate([
+      {
+        $match: {
+          orderStatus: 'Delivered'
+        }
+      },
+      {
+        $group: {
+          _id: '$shippingAddress.country',
+          sales: { $sum: '$totalAmount' },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { sales: -1 }
+      },
+      {
+        $limit: 6
+      }
+    ]);
+
+    // Map country codes to flags and format data
+    const countryFlags = {
+      'Canada': 'https://flagcdn.com/w40/ca.png',
+      'Korea': 'https://flagcdn.com/w40/kr.png',
+      'France': 'https://flagcdn.com/w40/fr.png',
+      'Germany': 'https://flagcdn.com/w40/de.png',
+      'India': 'https://flagcdn.com/w40/in.png',
+      'USA': 'https://flagcdn.com/w40/us.png'
+    };
+
+    const formattedData = topCountries.map((country, index) => ({
+      name: country._id || 'Unknown',
+      flag: countryFlags[country._id] || 'https://flagcdn.com/w40/un.png',
+      sales: `${Math.round(country.sales / 1000)}k`,
+      trend: generateTrendPoints(index),
+      isPositive: index % 2 === 0 // Alternate between positive/negative trends
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedData
+    });
+  } catch (error) {
+    console.error('Get top countries error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// Generate trend sparkline points
+function generateTrendPoints(seed) {
+  const points = [];
+  for (let i = 0; i < 10; i++) {
+    const y = 10 + Math.sin((i + seed) * 0.5) * 5 + Math.random() * 3;
+    points.push(`${i * 5},${y}`);
+  }
+  return points.join(' ');
+}
+
+// 📋 Get Sales Reports
+export const getSalesReports = async (req, res) => {
+  try {
+    const { search, status, date, page = 1, limit = 6 } = req.query;
+    const query = { orderStatus: 'Delivered' };
+
+    // Search filter
+    if (search) {
+      const products = await Product.find({
+        name: { $regex: search, $options: 'i' }
+      }).select('_id');
+      
+      query['orderItems.product'] = { $in: products.map(p => p._id) };
+    }
+
+    // Date filter
+    if (date) {
+      const now = new Date();
+      let startDate;
+      
+      switch (date) {
+        case 'today':
+          startDate = new Date(now.setHours(0, 0, 0, 0));
+          break;
+        case 'week':
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case 'month':
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case 'year':
+          startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+      }
+      
+      if (startDate) {
+        query.createdAt = { $gte: startDate };
+      }
+    }
+
+    const orders = await Order.find(query)
+      .populate('orderItems.product', 'name category')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Order.countDocuments(query);
+
+    // Format reports
+    const reports = orders.map(order => {
+      const firstProduct = order.orderItems[0]?.product;
+      return {
+        _id: order._id,
+        reportId: order.orderNumber || order._id.slice(-6),
+        productName: firstProduct?.name || 'Multiple Products',
+        category: firstProduct?.category?.name || 'Fashion',
+        earning: Math.round(order.totalAmount),
+        status: status || 'Published',
+        date: order.createdAt
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: reports,
+      pagination: {
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error('Get sales reports error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 📥 Export Sales Reports
+export const exportSalesReports = async (req, res) => {
+  try {
+    const { ids } = req.query;
+    
+    let query = { orderStatus: 'Delivered' };
+    if (ids) {
+      query._id = { $in: ids.split(',') };
+    }
+
+    const orders = await Order.find(query)
+      .populate('orderItems.product', 'name category')
+      .populate('user', 'name email phone')
+      .sort({ createdAt: -1 });
+
+    // Create CSV
+    const csvHeader = 'ID,Product,Category,Customer,Email,Phone,Amount,Date\n';
+    const csvRows = orders.map(order => {
+      const product = order.orderItems[0]?.product;
+      return [
+        order.orderNumber || order._id.slice(-6),
+        product?.name || 'Multiple',
+        product?.category?.name || 'N/A',
+        order.user?.name || 'N/A',
+        order.user?.email || 'N/A',
+        order.user?.phone || 'N/A',
+        order.totalAmount,
+        new Date(order.createdAt).toLocaleDateString()
+      ].join(',');
+    }).join('\n');
+
+    const csv = csvHeader + csvRows;
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=sales-report.csv');
+    res.status(200).send(csv);
+  } catch (error) {
+    console.error('Export sales reports error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
