@@ -37,11 +37,14 @@ import {
   getAllReviews,
   deleteReview,
 
-
+  // Tags
   getAllTags,
   addTag,
   updateTag,
   deleteTag,
+  getSingleTag,
+  createTag,
+
   getAllProductTypes,
   addProductType,
   updateProductType,
@@ -72,16 +75,24 @@ import {
   getStockTrends,
   getCategoryWiseStock,
 
-// Sales
-   getSalesStats,
+  // Sales
+  getSalesStats,
   getRevenueChart,
   getTopCountries,
   getSalesReports,
-  exportSalesReports
+  exportSalesReports,
+
+  // Transactions
+  getTransactions,
+  exportTransactions
 
 
 
 } from "../controllers/admin.controller.js";
+import { createFlashSale, deleteFlashSale, getAllFlashSales, getSingleFlashSale, updateFlashSale } from "../controllers/promotionalDeals/flashSaleController.js";
+import { createCoupon, deleteCoupon, getAllCoupons, getSingleCoupon, updateCoupon, validateCoupon } from "../controllers/promotionalDeals/couponController.js";
+import { createFeaturedDeal, deleteFeaturedDeal, getAllFeaturedDeals, getSingleFeaturedDeal, updateFeaturedDeal } from "../controllers/promotionalDeals/featuredDealController.js";
+import { createClearanceDeal, deleteClearanceDeal, getAllClearanceDeals, getSingleClearanceDeal, updateClearanceDeal } from "../controllers/promotionalDeals/clearanceDealController.js";
 
 const router = Router();
 
@@ -177,6 +188,48 @@ router.get('/sales/revenue-chart', isAdmin, getRevenueChart);
 router.get('/sales/top-countries', isAdmin, getTopCountries);
 router.get('/sales/reports', isAdmin, getSalesReports);
 router.get('/sales/export', isAdmin, exportSalesReports);
+
+// ==================== TAG ROUTES ====================
+// router.get('/tags', getAllTags);
+router.get('/tags/:id', getSingleTag);
+router.post('/tags', isAdmin, createTag);
+// router.put('/tags/:id', authenticateAdmin, updateTag);
+// router.delete('/tags/:id', authenticateAdmin, deleteTag);
+
+
+
+// Coupon Routes
+router.get('/coupons', isAdmin, getAllCoupons);
+router.get('/coupons/:id', isAdmin, getSingleCoupon);
+router.post('/coupons', isAdmin, createCoupon);
+router.put('/coupons/:id', isAdmin, updateCoupon);
+router.delete('/coupons/:id', isAdmin, deleteCoupon);
+router.post('/coupons/validate', validateCoupon);
+
+// Flash Sale Routes
+router.get('/flash-sales', isAdmin, getAllFlashSales);
+router.get('/flash-sales/:id', isAdmin, getSingleFlashSale);
+router.post('/flash-sales', isAdmin, createFlashSale);
+router.put('/flash-sales/:id', isAdmin, updateFlashSale);
+router.delete('/flash-sales/:id', isAdmin, deleteFlashSale);
+
+// // Featured Deal Routes (Similar pattern)
+router.get('/featured-deals', isAdmin, getAllFeaturedDeals);
+router.get('/featured-deals/:id', isAdmin, getSingleFeaturedDeal);
+router.post('/featured-deals', isAdmin, createFeaturedDeal);
+router.put('/featured-deals/:id', isAdmin, updateFeaturedDeal);
+router.delete('/featured-deals/:id', isAdmin, deleteFeaturedDeal);
+
+// Clearance Deal Routes (Similar pattern)
+router.get('/clearance-deals', isAdmin, getAllClearanceDeals);
+router.get('/clearance-deals/:id', isAdmin, getSingleClearanceDeal);
+router.post('/clearance-deals', isAdmin, createClearanceDeal);
+router.put('/clearance-deals/:id', isAdmin, updateClearanceDeal);
+router.delete('/clearance-deals/:id', isAdmin, deleteClearanceDeal);
+
+
+router.get('/transactions', isAdmin, getTransactions);
+router.get('/transactions/export', isAdmin, exportTransactions);
 
 
 export default router;

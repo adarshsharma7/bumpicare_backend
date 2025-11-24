@@ -13,11 +13,19 @@ const tagSchema = new mongoose.Schema(
       unique: true,
       lowercase: true
     },
+    category: {
+      type: String,
+      default: 'General'
+    },
     description: String,
     color: { 
       type: String, 
       default: '#06A096' 
-    }, // Tag color for UI
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
     isActive: { 
       type: Boolean, 
       default: true 

@@ -10,6 +10,9 @@ import OrderRequest from '../models/OrderRequest.js';
 import Warehouse from '../models/Warehouse.js';
 import Supplier from '../models/Supplier.js';
 import InventoryMovement from '../models/InventoryMovement.js';
+import Transaction from '../models/Transaction.js';
+import { Parser } from 'json2csv';
+
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -1409,6 +1412,97 @@ export const addTag = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+// 📌 Get Single Tag
+export const getSingleTag = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tag ID'
+      });
+    }
+
+    const tag = await Tag.findById(id);
+
+    if (!tag) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tag not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: tag
+    });
+  } catch (error) {
+    console.error('Get tag error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// ➕ Create Tag
+export const createTag = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized. Admin access required.'
+      });
+    }
+
+    const { name, slug, category, description, color } = req.body;
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tag name is required'
+      });
+    }
+
+    // Check if tag already exists
+    const existingTag = await Tag.findOne({
+      $or: [
+        { name: name.trim() },
+        { slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-') }
+      ]
+    });
+
+    if (existingTag) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tag with this name or slug already exists'
+      });
+    }
+
+    const tag = await Tag.create({
+      name: name.trim(),
+      slug: slug || undefined,
+      category: category || 'General',
+      description: description || '',
+      color: color || '#06A096',
+      createdBy: admin._id
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Tag created successfully',
+      data: tag
+    });
+  } catch (error) {
+    console.error('Create tag error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Internal server error' 
+    });
+  }
+};
+
 
 export const updateTag = async (req, res) => {
   try {
@@ -3031,3 +3125,373 @@ export const exportSalesReports = async (req, res) => {
   }
 };
 
+
+// // 📋 Get All Tags
+// export const getAllTags = async (req, res) => {
+//   try {
+//     const { search, category, date, page = 1, limit = 10 } = req.query;
+//     const query = {};
+
+//     // Search filter
+//     if (search) {
+//       query.$or = [
+//         { name: { $regex: search, $options: 'i' } },
+//         { slug: { $regex: search, $options: 'i' } }
+//       ];
+//     }
+
+//     // Category filter
+//     if (category) {
+//       query.category = category;
+//     }
+
+//     // Date filter
+//     if (date) {
+//       const now = new Date();
+//       let startDate;
+      
+//       switch (date) {
+//         case 'today':
+//           startDate = new Date(now.setHours(0, 0, 0, 0));
+//           break;
+//         case 'week':
+//           startDate = new Date(now.setDate(now.getDate() - 7));
+//           break;
+//         case 'month':
+//           startDate = new Date(now.setMonth(now.getMonth() - 1));
+//           break;
+//       }
+      
+//       if (startDate) {
+//         query.createdAt = { $gte: startDate };
+//       }
+//     }
+
+//     const tags = await Tag.find(query)
+//       .sort({ createdAt: -1 })
+//       .limit(limit * 1)
+//       .skip((page - 1) * limit);
+
+//     const total = await Tag.countDocuments(query);
+
+//     res.status(200).json({
+//       success: true,
+//       data: tags,
+//       pagination: {
+//         total,
+//         page: Number(page),
+//         pages: Math.ceil(total / limit)
+//       }
+//     });
+//   } catch (error) {
+//     console.error('Get tags error:', error);
+//     res.status(500).json({ success: false, message: 'Internal server error' });
+//   }
+// };
+
+// // ✏️ Update Tag
+// export const updateTag = async (req, res) => {
+//   try {
+//     const admin = req.user;
+
+//     if (!admin || admin.role !== 'admin') {
+//       return res.status(403).json({
+//         success: false,
+//         message: 'Unauthorized. Admin access required.'
+//       });
+//     }
+
+//     const { id } = req.params;
+
+//     if (!mongoose.Types.ObjectId.isValid(id)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid tag ID'
+//       });
+//     }
+
+//     const tag = await Tag.findById(id);
+
+//     if (!tag) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Tag not found'
+//       });
+//     }
+
+//     const { name, slug, category, description, color } = req.body;
+
+//     // Check for duplicate name/slug (excluding current tag)
+//     if (name || slug) {
+//       const duplicateTag = await Tag.findOne({
+//         _id: { $ne: id },
+//         $or: [
+//           { name: name || tag.name },
+//           { slug: slug || tag.slug }
+//         ]
+//       });
+
+//       if (duplicateTag) {
+//         return res.status(400).json({
+//           success: false,
+//           message: 'Tag with this name or slug already exists'
+//         });
+//       }
+//     }
+
+//     // Update fields
+//     if (name) tag.name = name.trim();
+//     if (slug) tag.slug = slug;
+//     if (category) tag.category = category;
+//     if (description !== undefined) tag.description = description;
+//     if (color) tag.color = color;
+
+//     await tag.save();
+
+//     res.status(200).json({
+//       success: true,
+//       message: 'Tag updated successfully',
+//       data: tag
+//     });
+//   } catch (error) {
+//     console.error('Update tag error:', error);
+//     res.status(500).json({ 
+//       success: false, 
+//       message: error.message || 'Internal server error' 
+//     });
+//   }
+// };
+
+// // 🗑️ Delete Tag
+// export const deleteTag = async (req, res) => {
+//   try {
+//     const admin = req.user;
+
+//     if (!admin || admin.role !== 'admin') {
+//       return res.status(403).json({
+//         success: false,
+//         message: 'Unauthorized. Admin access required.'
+//       });
+//     }
+
+//     const { id } = req.params;
+
+//     if (!mongoose.Types.ObjectId.isValid(id)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid tag ID'
+//       });
+//     }
+
+//     const tag = await Tag.findByIdAndDelete(id);
+
+//     if (!tag) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Tag not found'
+//       });
+//     }
+
+//     res.status(200).json({
+//       success: true,
+//       message: 'Tag deleted successfully'
+//     });
+//   } catch (error) {
+//     console.error('Delete tag error:', error);
+//     res.status(500).json({ 
+//       success: false, 
+//       message: 'Internal server error' 
+//     });
+//   }
+// };
+
+
+// 📋 Get All Transactions with Filters
+export const getTransactions = async (req, res) => {
+  try {
+    const { 
+      search, 
+      paymentStatus, 
+      receivedStatus, 
+      dateFilter, 
+      page = 1, 
+      limit = 10 
+    } = req.query;
+
+    // Build query
+    let query = {};
+
+    // Search filter
+    if (search) {
+      query.$or = [
+        { trackingNumber: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Payment status filter
+    if (paymentStatus) {
+      query.paymentStatus = paymentStatus;
+    }
+
+    // Received status filter
+    if (receivedStatus) {
+      query.status = receivedStatus;
+    }
+
+    // Date filter
+    if (dateFilter) {
+      const now = new Date();
+      let startDate;
+
+      switch (dateFilter) {
+        case 'today':
+          startDate = new Date(now.setHours(0, 0, 0, 0));
+          break;
+        case 'week':
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case 'month':
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case 'year':
+          startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+      }
+
+      if (startDate) {
+        query.date = { $gte: startDate };
+      }
+    }
+
+    // Pagination
+    const skip = (page - 1) * limit;
+    const total = await Transaction.countDocuments(query);
+    const pages = Math.ceil(total / limit);
+
+    // Fetch transactions
+    const transactions = await Transaction.find(query)
+      .populate('orderId', 'orderNumber')
+      .sort({ date: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      data: transactions,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages,
+      },
+    });
+  } catch (error) {
+    console.error('Get transactions error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 📥 Export Transactions to CSV
+export const exportTransactions = async (req, res) => {
+  try {
+    const { search, paymentStatus, receivedStatus, dateFilter } = req.query;
+
+    // Build same query as getTransactions
+    let query = {};
+
+    if (search) {
+      query.$or = [
+        { trackingNumber: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    if (paymentStatus) {
+      query.paymentStatus = paymentStatus;
+    }
+
+    if (receivedStatus) {
+      query.status = receivedStatus;
+    }
+
+    if (dateFilter) {
+      const now = new Date();
+      let startDate;
+
+      switch (dateFilter) {
+        case 'today':
+          startDate = new Date(now.setHours(0, 0, 0, 0));
+          break;
+        case 'week':
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case 'month':
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case 'year':
+          startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+      }
+
+      if (startDate) {
+        query.date = { $gte: startDate };
+      }
+    }
+
+    // Fetch all transactions without pagination
+    const transactions = await Transaction.find(query)
+      .populate('orderId', 'orderNumber')
+      .sort({ date: -1 });
+
+    // Format data for CSV
+    const csvData = transactions.map(t => ({
+      'Tracking Number': t.trackingNumber,
+      'Product Price': `$${t.productPrice.toFixed(2)}`,
+      'Delivery Fee': `$${t.deliveryFee.toFixed(2)}`,
+      'Payment Method': t.paymentMethod,
+      'Email': t.email,
+      'Payment Status': t.paymentStatus,
+      'Status': t.status,
+      'Date': new Date(t.date).toLocaleDateString('en-US', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      }),
+    }));
+
+    // Convert to CSV
+    const json2csvParser = new Parser();
+    const csv = json2csvParser.parse(csvData);
+
+    // Set headers and send file
+    res.header('Content-Type', 'text/csv');
+    res.header('Content-Disposition', `attachment; filename="transactions_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Export transactions error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 📝 Create Transaction (automatically when order is placed)
+export const createTransaction = async (orderData) => {
+  try {
+    const transaction = await Transaction.create({
+      orderId: orderData._id,
+      trackingNumber: orderData.orderNumber || `TRK${Date.now()}`,
+      productPrice: orderData.totalAmount,
+      deliveryFee: orderData.shippingPrice || 0,
+      paymentMethod: orderData.paymentMethod || 'Master Card',
+      email: orderData.user?.email || orderData.email,
+      paymentStatus: orderData.paymentStatus || 'paid',
+      status: orderData.orderStatus || 'Processing',
+      date: orderData.createdAt || new Date(),
+    });
+
+    return transaction;
+  } catch (error) {
+    console.error('Create transaction error:', error);
+    throw error;
+  }
+};

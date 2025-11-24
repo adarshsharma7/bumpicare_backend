@@ -1,17 +1,18 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import Cart  from "../models/cart.model.js";
-import  Order  from "../models/order.model.js";
-import Product  from "../models/product.model.js";
-import User  from "../models/user.model.js";
+import Cart from "../models/cart.model.js";
+import Order from "../models/order.model.js";
+import Product from "../models/product.model.js";
+import User from "../models/user.model.js";
 import Razorpay from "razorpay";
 import { generateOrderNumber } from "../utils/generateOrderNumber.js";
+import { createTransaction } from "./admin.controller.js";
 
 /* ------------------------------ CREATE ORDER (From Cart) ------------------------------ */
 export const createOrder = asyncHandler(async (req, res) => {
   const user = req.user;
-  const { shippingAddress ,note} = req.body;
+  const { shippingAddress, note } = req.body;
 
   if (!shippingAddress) throw new ApiError(400, "Shipping address required");
 
@@ -57,8 +58,9 @@ export const createOrder = asyncHandler(async (req, res) => {
     paymentStatus: "Pending",
     orderStatus: "Processing",
     totalAmount,
-    
+
   });
+  await createTransaction(order);
 
   await Cart.findOneAndDelete({ user: user._id });
 
@@ -112,9 +114,9 @@ export const createSingleOrder = asyncHandler(async (req, res) => {
     paymentStatus: "Pending",
     orderStatus: "Processing",
     totalAmount,
-    
-  });
 
+  });
+  await createTransaction(order);
   // ✅ Decrease stock
   await Product.findByIdAndUpdate(product._id, { $inc: { stock: -quantity } });
 
@@ -174,9 +176,9 @@ export const getAllOrders = asyncHandler(async (req, res) => {
 
 /* ------------------------------ GET USER ORDERS ------------------------------ */
 export const getUserOrders = asyncHandler(async (req, res) => {
-  
+
   const user = req.user;
-  
+
   const orders = await Order.find({ user: user._id })
     .sort({ placedAt: -1 })
     .populate({ path: "orderItems.product", select: "name images price" });
@@ -190,7 +192,7 @@ export const getUserOrders = asyncHandler(async (req, res) => {
 /* ------------------------------ CANCEL ORDER ------------------------------ */
 export const cancelOrder = asyncHandler(async (req, res) => {
   const user = req.user;
-  const {orderId}=req.body;
+  const { orderId } = req.body;
 
   const order = await Order.findById(orderId);
   if (!order) throw new ApiError(404, "Order not found");
