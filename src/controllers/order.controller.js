@@ -10,6 +10,8 @@ import { generateOrderNumber } from "../utils/generateOrderNumber.js";
 import { createTransaction } from "./admin.controller.js";
 
 /* ------------------------------ CREATE ORDER (From Cart) ------------------------------ */
+// orderController.js - CREATE ORDER (From Cart)
+
 export const createOrder = asyncHandler(async (req, res) => {
   const user = req.user;
   const { shippingAddress, note } = req.body;
@@ -45,9 +47,11 @@ export const createOrder = asyncHandler(async (req, res) => {
     await Product.findByIdAndUpdate(prod._id, { $inc: { stock: -it.quantity } });
   }
 
+  // ✅ Calculate shipping and total
   const shippingCost = subtotal > 1000 ? 0 : 50;
   const totalAmount = subtotal + shippingCost;
 
+  // ✅ Create order with all fields
   const order = await Order.create({
     user: user._id,
     orderNumber: generateOrderNumber(),
@@ -57,32 +61,43 @@ export const createOrder = asyncHandler(async (req, res) => {
     paymentMethod: "COD",
     paymentStatus: "Pending",
     orderStatus: "Processing",
+    subtotal,           // ✅ Added
+    shippingCost,       // ✅ Added
     totalAmount,
-
   });
-  await createTransaction(order);
+
+  // ✅ Create transaction AFTER order is saved
+  try {
+    await createTransaction(order);
+  } catch (error) {
+    console.error('Transaction creation failed:', error);
+    // Order is still created, just transaction failed (non-critical)
+  }
 
   await Cart.findOneAndDelete({ user: user._id });
 
-  await order.populate({ path: "orderItems.product", select: "name images price" });
+  await order.populate({ 
+    path: "orderItems.product", 
+    select: "name images price" 
+  });
 
   return res
     .status(201)
     .json(new ApiResponse(201, order, "Order placed successfully"));
 });
 /* ------------------------------ CREATE SINGLE ORDER ------------------------------ */
+// orderController.js - CREATE SINGLE ORDER
+
 export const createSingleOrder = asyncHandler(async (req, res) => {
   const user = req.user;
   const { productId, quantity, shippingAddress, note } = req.body;
 
-  // ✅ Field validation
   if (!productId || !quantity || !shippingAddress) {
     return res
       .status(400)
       .json(new ApiResponse(400, null, "Missing required fields"));
   }
 
-  // ✅ Product check
   const product = await Product.findById(productId);
   if (!product) {
     return res.status(404).json(new ApiResponse(404, null, "Product not found"));
@@ -94,10 +109,12 @@ export const createSingleOrder = asyncHandler(async (req, res) => {
       .json(new ApiResponse(400, null, "Insufficient stock"));
   }
 
-  // ✅ Calculate total
-  const totalAmount = product.price * quantity;
+  // ✅ Calculate subtotal and shipping
+  const subtotal = product.price * quantity;
+  const shippingCost = subtotal > 1000 ? 0 : 50;
+  const totalAmount = subtotal + shippingCost;
 
-  // ✅ Create order
+  // ✅ Create order with all fields
   const order = await Order.create({
     user: user._id,
     orderNumber: generateOrderNumber(),
@@ -113,14 +130,21 @@ export const createSingleOrder = asyncHandler(async (req, res) => {
     paymentMethod: "COD",
     paymentStatus: "Pending",
     orderStatus: "Processing",
+    subtotal,           // ✅ Added
+    shippingCost,       // ✅ Added
     totalAmount,
-
   });
-  await createTransaction(order);
+
+  // ✅ Create transaction
+  try {
+    await createTransaction(order);
+  } catch (error) {
+    console.error('Transaction creation failed:', error);
+  }
+
   // ✅ Decrease stock
   await Product.findByIdAndUpdate(product._id, { $inc: { stock: -quantity } });
 
-  // ✅ Populate product info in response
   await order.populate({
     path: "orderItems.product",
     select: "name images price",

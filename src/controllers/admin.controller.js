@@ -3475,23 +3475,41 @@ export const exportTransactions = async (req, res) => {
 };
 
 // 📝 Create Transaction (automatically when order is placed)
+// transactionController.js
+
 export const createTransaction = async (orderData) => {
   try {
+    // First populate user to get email
+    const populatedOrder = await Order.findById(orderData._id).populate('user', 'email name');
+    
+    if (!populatedOrder) {
+      throw new Error('Order not found for transaction');
+    }
+
+    // Calculate delivery fee from order (shipping cost)
+    const subtotal = populatedOrder.orderItems.reduce((sum, item) => {
+      return sum + (item.price * item.quantity);
+    }, 0);
+    
+    const deliveryFee = populatedOrder.totalAmount - subtotal; // This gives us shipping cost
+
     const transaction = await Transaction.create({
-      orderId: orderData._id,
-      trackingNumber: orderData.orderNumber || `TRK${Date.now()}`,
-      productPrice: orderData.totalAmount,
-      deliveryFee: orderData.shippingPrice || 0,
-      paymentMethod: orderData.paymentMethod || 'Master Card',
-      email: orderData.user?.email || orderData.email,
-      paymentStatus: orderData.paymentStatus || 'paid',
-      status: orderData.orderStatus || 'Processing',
-      date: orderData.createdAt || new Date(),
+      orderId: populatedOrder._id,
+      trackingNumber: populatedOrder.orderNumber,
+      productPrice: subtotal, // Only product price (without shipping)
+      deliveryFee: deliveryFee, // Shipping cost
+      paymentMethod: populatedOrder.paymentMethod || 'COD',
+      email: populatedOrder.user.email, // Now this will work
+      paymentStatus: populatedOrder.paymentStatus.toLowerCase(), // Convert 'Pending' to 'pending'
+      status: populatedOrder.orderStatus, // 'Processing', 'Shipped', etc.
+      date: populatedOrder.createdAt,
     });
 
+    console.log('✅ Transaction created:', transaction._id);
     return transaction;
   } catch (error) {
-    console.error('Create transaction error:', error);
-    throw error;
+    console.error('❌ Create transaction error:', error);
+    // Don't throw error - just log it so order creation doesn't fail
+    return null;
   }
 };

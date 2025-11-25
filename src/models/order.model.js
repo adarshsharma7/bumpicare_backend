@@ -24,6 +24,11 @@ const orderSchema = new mongoose.Schema(
       country: String,
       addressLine: String,
     },
+
+    subtotal: { type: Number, required: true }, // Product price only
+    shippingCost: { type: Number, default: 0 }, // Shipping/delivery fee
+    totalAmount: { type: Number, required: true },
+    
     paymentMethod: { type: String, enum: ["COD", "ONLINE"], default: "COD" },
     paymentStatus: { type: String, enum: ["Pending", "Paid", "Refund Initiated", "Refunded"], default: "Pending" },
 
