@@ -33,7 +33,7 @@ const userSchema = new mongoose.Schema(
       ref: "UserSubscription",
       default: null
     },
-    
+
     // ✅ NEW: Quick access to current plan (denormalized for performance)
     currentPlan: {
       type: mongoose.Schema.Types.ObjectId,
@@ -57,31 +57,72 @@ const userSchema = new mongoose.Schema(
         quantity: { type: Number, default: 1 },
       },
     ],
-    
+
     isBlocked: { type: Boolean, default: false },
+    // ✅ ADD Email Verification
+    emailVerified: { type: Boolean, default: false },
+    emailVerificationToken: String,
+    emailVerificationExpires: Date,
+
+    // ✅ ADD Password Reset
+    passwordResetToken: String,
+    passwordResetExpires: Date,
+
+    // ✅ ADD Phone Verification
+    phoneVerified: { type: Boolean, default: false },
+    phoneVerificationOTP: String,
+    phoneVerificationExpires: Date,
+
+    // ✅ ADD Last Login
+    lastLogin: Date,
+    lastLoginIP: String,
+
+    // ✅ ADD User Preferences
+    preferences: {
+      language: { type: String, default: 'en' },
+      currency: { type: String, default: 'INR' },
+      notifications: {
+        email: { type: Boolean, default: true },
+        sms: { type: Boolean, default: true },
+        push: { type: Boolean, default: true },
+      },
+    },
+
+    // ✅ ADD Referral System
+    referralCode: { type: String, unique: true, sparse: true },
+    referredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    referralCount: { type: Number, default: 0 },
+
+    // ✅ ADD Wallet (for refunds, cashback)
+    walletBalance: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
-
+userSchema.pre('save', async function (next) {
+  if (this.isNew && !this.referralCode) {
+    this.referralCode = `REF${this._id.toString().slice(-8).toUpperCase()}`;
+  }
+  next();
+});
 // ✅ Virtual to check if user has active subscription
-userSchema.virtual('hasActiveSubscription').get(function() {
+userSchema.virtual('hasActiveSubscription').get(function () {
   return this.subscription != null && this.currentPlan != null;
 });
 
 // ✅ Method to get subscription features
-userSchema.methods.getSubscriptionFeatures = async function() {
+userSchema.methods.getSubscriptionFeatures = async function () {
   if (!this.currentPlan) return null;
-  
+
   const SubscriptionPlan = mongoose.model('SubscriptionPlan');
   const plan = await SubscriptionPlan.findById(this.currentPlan);
   return plan?.features || null;
 };
 
 // ✅ Method to check if feature is accessible
-userSchema.methods.canAccessFeature = async function(featureName) {
+userSchema.methods.canAccessFeature = async function (featureName) {
   const features = await this.getSubscriptionFeatures();
   if (!features) return false;
-  
+
   return features[featureName] === true || features[featureName] === -1;
 };
 

@@ -49,7 +49,8 @@ const allowedOrigins = [
   "https://bumpicare-admin.vercel.app",  // ✅ Your admin website
   "http://localhost:3000",               // 🔧 Local development (admin)
   "http://localhost:5173",               // 🔧 Vite dev server
-  "http://localhost:5174",               // 🔧 Alternative Vite port
+  "http://localhost:5174",                       // 🔧 Alternative Vite port
+  "https://maxxkart.com",
 ];
 
 app.use(cors({
@@ -58,7 +59,7 @@ app.use(cors({
     if (!origin) {
       return callback(null, true);
     }
-    
+
     // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -106,7 +107,7 @@ const validateApiKey = (req, res, next) => {
   // 2. ALL admin routes (they use JWT auth from web)
   // 3. Auth routes (login/register - used by both Flutter & Admin website)
   // 4. Public routes (if any)
-  
+
   const publicRoutes = [
     "/",
     "/api/admin",
@@ -115,7 +116,7 @@ const validateApiKey = (req, res, next) => {
   ];
 
   // Check if current path matches any public route
-  const isPublicRoute = publicRoutes.some(route => 
+  const isPublicRoute = publicRoutes.some(route =>
     req.path === route || req.path.startsWith(route + "/")
   );
 
@@ -134,13 +135,13 @@ const validateApiKey = (req, res, next) => {
   if (!apiKey || apiKey !== validApiKey) {
     // Get real IP address (considering proxy)
     const realIP = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    
+
     console.log("❌ Invalid API Key attempt");
     console.log("   IP:", realIP);
     console.log("   Path:", req.path);
     console.log("   Origin:", req.headers.origin || "none");
     console.log("   User-Agent:", req.headers["user-agent"]?.substring(0, 50) || "none");
-    
+
     return res.status(401).json({
       success: false,
       message: "Unauthorized: Invalid or missing API Key",
@@ -233,12 +234,12 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   console.error("💥 Error:", err.message);
-  
+
   // Don't log full stack trace in production
   // if (process.env.NODE_ENV !== "production") {
   //   console.error("Stack:", err.stack);
   // }
-  
+
   // CORS error
   if (err.message === "Not allowed by CORS") {
     return res.status(403).json({

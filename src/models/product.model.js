@@ -76,7 +76,10 @@ const productSchema = new mongoose.Schema(
     reviewsCount: { type: Number, default: 0 },
 
     isActive: { type: Boolean, default: true },
-
+    isDraft: {
+      type: Boolean,
+      default: false
+    },
 
     warehouse: {
       type: String,
@@ -99,8 +102,58 @@ const productSchema = new mongoose.Schema(
       type: Number, // in days
       default: 7,
     },
+    // ✅ ADD SEO Fields
+    metaTitle: String,
+    metaDescription: String,
+    metaKeywords: [String],
+
+    // ✅ ADD Better Status Tracking
+    publishedAt: Date,
+    status: {
+      type: String,
+      enum: ['draft', 'published', 'archived'],
+      default: 'draft'
+    },
+
+    // ✅ ADD Weight for shipping calculation
+    weight: Number, // in grams
+    dimensions: {
+      length: Number,
+      width: Number,
+      height: Number,
+      unit: { type: String, default: 'cm' }
+    },
+
+    // ✅ ADD Low Stock Alert
+    lowStockThreshold: { type: Number, default: 5 },
+    notifyOnLowStock: { type: Boolean, default: true },
+
+    // ✅ ADD for Featured Products
+    isFeatured: { type: Boolean, default: false },
+    featuredOrder: { type: Number, default: 0 },
+
+    // ✅ ADD Return Policy
+    returnPolicy: {
+      allowed: { type: Boolean, default: true },
+      days: { type: Number, default: 7 },
+      conditions: String,
+    },
   },
   { timestamps: true }
 );
+// ✅ ADD Indexes for better performance
+productSchema.index({ slug: 1 });
+productSchema.index({ category: 1, isActive: 1 });
+productSchema.index({ price: 1 });
+productSchema.index({ stock: 1 });
+productSchema.index({ isFeatured: 1, featuredOrder: 1 });
+productSchema.index({ createdAt: -1 });
+
+// ✅ ADD Text Search Index
+productSchema.index({
+  name: 'text',
+  description: 'text',
+  brand: 'text'
+});
 
 export default mongoose.models.Product || mongoose.model('Product', productSchema);

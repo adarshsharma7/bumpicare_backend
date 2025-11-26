@@ -332,9 +332,48 @@ export const getAllUsers = async (req, res) => {
   }
 };
 
+// 👑 Get All Admins
+export const getAllAdmins = async (req, res) => {
+  try {
+    const { search, page = 1, limit = 20 } = req.query;
+
+    const query = { role: "admin" };
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const admins = await User.find(query)
+      .select("-password")
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await User.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      data: admins,
+      pagination: {
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Get admins error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
 
 // ==================== GET SINGLE PRODUCT ====================
-
 export const getSingleProduct = async (req, res) => {
   try {
     const { id } = req.params;
@@ -482,22 +521,31 @@ export const cancelOrderByAdmin = async (req, res) => {
 
 // ==================== PRODUCTS ====================
 
-// 📦 Get All Products (Admin view with filters)
-// ==================== PRODUCTS ====================
-
 // 📦 Get All Products (Admin + Filters + Pagination)
 export const getAdminProducts = async (req, res) => {
   try {
-    let { search = "", category, isActive, page = 1, limit = 20 } = req.query;
+    let { 
+      search = "", 
+      category, 
+      seller,
+      isActive, 
+      page = 1, 
+      limit = 10,
+      sort = '-createdAt' 
+    } = req.query;
 
     page = Number(page);
     limit = Number(limit);
 
     const query = {};
 
-    // 🔍 Search by name
+    // 🔍 Enhanced Search - search in name, brand, description
     if (search.trim() !== "") {
-      query.name = { $regex: search, $options: "i" };
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { brand: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+      ];
     }
 
     // 🎯 Filter by category
@@ -505,20 +553,32 @@ export const getAdminProducts = async (req, res) => {
       query.category = category;
     }
 
-    // 🟢 Filter by active/inactive
-    if (isActive === "true" || isActive === "false") {
-      query.isActive = isActive === "true";
+    // 👤 Filter by seller
+    if (seller && seller !== "all") {
+      query.seller = seller;
     }
 
-    // 🎁 Fetch Products
+    // 🟢 Filter by active/inactive
+    if (isActive === "true") {
+      query.isActive = true;
+    } else if (isActive === "false") {
+      query.isActive = false;
+    }
+
+    // 📊 Count total matching products
+    const total = await Product.countDocuments(query);
+
+    // 🎁 Fetch Products with populated fields
     const products = await Product.find(query)
       .populate("category", "name")
-      .sort({ createdAt: -1 })
+      .populate("seller", "name shopName email")
+      .populate("productType", "name")
+      .sort(sort)
       .skip((page - 1) * limit)
       .limit(limit);
 
-    // 🔢 Count Total for Pagination
-    const total = await Product.countDocuments(query);
+    // 📄 Calculate pagination
+    const totalPages = Math.ceil(total / limit);
 
     res.status(200).json({
       success: true,
@@ -527,8 +587,8 @@ export const getAdminProducts = async (req, res) => {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
-        hasNextPage: page * limit < total,
+        totalPages,
+        hasNextPage: page < totalPages,
         hasPreviousPage: page > 1,
       },
     });
@@ -644,19 +704,33 @@ export const addProduct = async (req, res) => {
       videos,
       productType,
       isActive,
+      status,        // ✅ NEW
+      isDraft,       // ✅ NEW
     } = req.body;
 
-    if (!name || !price || !category) {
-      return res.status(400).json({ success: false, message: 'Name, price, and category are required' });
+    // ✅ Relax validation for draft products
+    if (!isDraft && (!name || !price || !category)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, price, and category are required for published products'
+      });
+    }
+
+    // ✅ Minimum validation for draft
+    if (isDraft && !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product name is required even for drafts'
+      });
     }
 
     const product = await Product.create({
       name,
-      slug,
+      slug: slug || name.toLowerCase().replace(/\s+/g, '-'),
       description,
-      price,
+      price: price || 0,
       discountPrice: discountPrice || null,
-      category,
+      category: category || null,
       stock: stock || 0,
       images: images || [],
       coverPhoto: coverPhoto || '',
@@ -672,12 +746,22 @@ export const addProduct = async (req, res) => {
       discounts: discounts || [],
       tags: tags || [],
       productType: productType || null,
-      isActive: isActive !== undefined ? isActive : true,
+      isActive: isDraft ? false : (isActive !== undefined ? isActive : true), // ✅ Draft products are inactive
+      status: status || (isDraft ? 'draft' : 'published'), // ✅ Set status
+      isDraft: isDraft || false, // ✅ Set draft flag
+      publishedAt: isDraft ? null : new Date(), // ✅ Set publish date only if not draft
     });
 
     await product.populate('category', 'name');
+    await product.populate('seller', 'name shopName');
+    await product.populate('productType', 'name');
+    await product.populate('tags', 'name color');
 
-    return res.status(201).json({ success: true, message: 'Product added successfully', data: product });
+    return res.status(201).json({
+      success: true,
+      message: isDraft ? 'Product saved as draft' : 'Product published successfully',
+      data: product
+    });
   } catch (error) {
     console.error('Add product error:', error);
     return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
@@ -699,12 +783,27 @@ export const updateProduct = async (req, res) => {
 
     const payload = req.body;
 
-    // Update only provided fields
+    // ✅ Add new allowed fields
     const allowed = [
       'name', 'slug', 'description', 'price', 'discountPrice', 'category', 'stock',
       'images', 'brand', 'colors', 'sizes', 'specifications', 'keyInfo', 'sizeGuide',
-      'seller', 'variants', 'discounts', 'tags', 'coverPhoto', 'videos', 'productType', 'isActive'
+      'seller', 'variants', 'discounts', 'tags', 'coverPhoto', 'videos', 'productType',
+      'isActive', 'status', 'isDraft' // ✅ NEW FIELDS
     ];
+
+    // ✅ Handle status change from draft to published
+    if (payload.isDraft === false && product.isDraft === true) {
+      payload.publishedAt = new Date();
+      payload.status = 'published';
+      payload.isActive = true;
+    }
+
+    // ✅ Handle save as draft (published → draft)
+    if (payload.isDraft === true) {
+      payload.status = 'draft';
+      payload.isActive = false;
+      payload.publishedAt = null;
+    }
 
     allowed.forEach((key) => {
       if (payload[key] !== undefined) product[key] = payload[key];
@@ -712,11 +811,159 @@ export const updateProduct = async (req, res) => {
 
     await product.save();
     await product.populate('category', 'name');
+    await product.populate('seller', 'name shopName');
+    await product.populate('productType', 'name');
+    await product.populate('tags', 'name color');
 
-    return res.status(200).json({ success: true, message: 'Product updated successfully', data: product });
+    return res.status(200).json({
+      success: true,
+      message: product.isDraft ? 'Product saved as draft' : 'Product updated successfully',
+      data: product
+    });
   } catch (error) {
     console.error('Update product error:', error);
     return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
+  }
+};
+
+// ==================== GET DRAFT PRODUCTS ====================
+export const getDraftProducts = async (req, res) => {
+  try {
+    const { search, category, seller, sort = '-createdAt' } = req.query;
+
+    let filter = { isDraft: true }; // ✅ Only draft products
+
+    // Search
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { brand: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Category filter
+    if (category && mongoose.Types.ObjectId.isValid(category)) {
+      filter.category = category;
+    }
+
+    // Seller filter
+    if (seller && mongoose.Types.ObjectId.isValid(seller)) {
+      filter.seller = seller;
+    }
+
+    const products = await Product.find(filter)
+      .populate('category', 'name')
+      .populate('seller', 'name shopName')
+      .populate('productType', 'name')
+      .populate('tags', 'name color')
+      .sort(sort);
+
+    // ✅ Calculate completion percentage for each product
+    const productsWithCompletion = products.map(product => {
+      const requiredFields = [
+        product.name,
+        product.price,
+        product.category,
+        product.description,
+        product.coverPhoto || product.images?.length,
+        product.stock,
+      ];
+
+      const filledFields = requiredFields.filter(field => {
+        if (typeof field === 'number') return field > 0;
+        if (Array.isArray(field)) return field.length > 0;
+        return !!field;
+      }).length;
+
+      const completionPercentage = Math.round((filledFields / requiredFields.length) * 100);
+
+      // ✅ Find missing fields
+      const missingFields = [];
+      if (!product.name) missingFields.push('name');
+      if (!product.price || product.price === 0) missingFields.push('price');
+      if (!product.category) missingFields.push('category');
+      if (!product.description) missingFields.push('description');
+      if (!product.coverPhoto && (!product.images || product.images.length === 0)) missingFields.push('images');
+      if (!product.stock || product.stock === 0) missingFields.push('stock');
+
+      return {
+        ...product.toObject(),
+        completionPercentage,
+        missingFields,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: productsWithCompletion,
+      count: productsWithCompletion.length,
+    });
+  } catch (error) {
+    console.error('Get draft products error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== PUBLISH DRAFT PRODUCT ====================
+export const publishDraftProduct = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized. Admin access required.'
+      });
+    }
+
+    const { id } = req.params;
+    const product = await Product.findById(id);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    if (!product.isDraft) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product is already published'
+      });
+    }
+
+    // ✅ Validate required fields before publishing
+    if (!product.name || !product.price || !product.category) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot publish: Product must have name, price, and category'
+      });
+    }
+
+    // ✅ Update to published
+    product.isDraft = false;
+    product.status = 'published';
+    product.isActive = true;
+    product.publishedAt = new Date();
+
+    await product.save();
+    await product.populate('category', 'name');
+    await product.populate('seller', 'name shopName');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Product published successfully',
+      data: product
+    });
+  } catch (error) {
+    console.error('Publish draft product error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
   }
 };
 
@@ -1102,28 +1349,66 @@ export const deleteCategory = async (req, res) => {
 
 // ==================== REVIEWS ====================
 
-// ⭐ Get All Reviews
+// ⭐ Get All Reviews (Enhanced with search & filters)
 export const getAllReviews = async (req, res) => {
   try {
-    const { productId, page = 1, limit = 20 } = req.query;
+    const {
+      productId,
+      userId,
+      rating,
+      search,
+      page = 1,
+      limit = 20,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Build query
     const query = {};
 
     if (productId) {
       query.product = productId;
     }
 
+    if (userId) {
+      query.user = userId;
+    }
+
+    if (rating) {
+      query.rating = parseInt(rating);
+    }
+
+    // Search in comment
+    if (search) {
+      query.$or = [
+        { comment: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Sorting
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Fetch reviews
     const reviews = await Review.find(query)
-      .populate("user", "name email")
-      .populate("product", "name images")
-      .sort({ createdAt: -1 })
+      .populate("user", "name email avatar")
+      .populate("product", "name images price")
+      .sort(sort)
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
     const total = await Review.countDocuments(query);
 
+    // Calculate average rating
+    const avgRating = await Review.aggregate([
+      { $match: query },
+      { $group: { _id: null, averageRating: { $avg: "$rating" } } }
+    ]);
+
     res.status(200).json({
       success: true,
       data: reviews,
+      averageRating: avgRating[0]?.averageRating || 0,
       pagination: {
         total,
         page: Number(page),
@@ -1136,27 +1421,47 @@ export const getAllReviews = async (req, res) => {
   }
 };
 
-// 🗑️ Delete Review
-export const deleteReview = async (req, res) => {
+// 👁️ Get Single Review Detail
+export const getReviewById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const review = await Review.findById(id)
+      .populate("user", "name email avatar phone")
+      .populate("product", "name images price description");
+
+    if (!review) {
+      return res.status(404).json({
+        success: false,
+        message: "Review not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: review,
+    });
+  } catch (error) {
+    console.error("Get review error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// 🗑️ Delete Single Review (Enhanced)
+export const deletesReview = async (req, res) => {
   try {
     const { id } = req.params;
 
     const review = await Review.findByIdAndDelete(id);
     if (!review) {
-      return res.status(404).json({ success: false, message: "Review not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Review not found"
+      });
     }
 
     // Update product ratings
-    const product = await Product.findById(review.product);
-    if (product) {
-      const reviews = await Review.find({ product: review.product });
-      product.reviewsCount = reviews.length;
-      product.ratings =
-        reviews.length > 0
-          ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-          : 0;
-      await product.save();
-    }
+    await updateProductRating(review.product);
 
     res.status(200).json({
       success: true,
@@ -1167,6 +1472,330 @@ export const deleteReview = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+// ============================================
+// 📁 reviewController.js - Product-wise System
+// ============================================
+
+// 📦 Get Products with Review Counts & Stats
+export const getProductsWithReviews = async (req, res) => {
+  try {
+    const { search, page = 1, limit = 20 } = req.query;
+
+    // Build product query
+    let productQuery = { isActive: true };
+    if (search) {
+      productQuery.name = { $regex: search, $options: 'i' };
+    }
+
+    // Get products
+    const products = await Product.find(productQuery)
+      .select('name images')
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Product.countDocuments(productQuery);
+
+    // Get review stats for each product
+    const productsWithStats = await Promise.all(
+      products.map(async (product) => {
+        // Count reviews
+        const reviewCount = await Review.countDocuments({ product: product._id });
+
+        // Get average rating
+        const avgRating = await Review.aggregate([
+          { $match: { product: product._id } },
+          { $group: { _id: null, average: { $avg: "$rating" } } }
+        ]);
+
+        // Get rating distribution
+        const ratingDist = await Review.aggregate([
+          { $match: { product: product._id } },
+          { $group: { _id: "$rating", count: { $sum: 1 } } }
+        ]);
+
+        // Format rating distribution
+        const ratingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+        ratingDist.forEach(r => {
+          ratingDistribution[r._id] = r.count;
+        });
+
+        // Check if any review has images
+        const hasImages = await Review.exists({ 
+          product: product._id, 
+          'images.0': { $exists: true } 
+        });
+
+        return {
+          _id: product._id,
+          name: product.name,
+          image: product.images?.[0] || null,
+          reviewCount,
+          averageRating: avgRating[0]?.average || 0,
+          ratingDistribution,
+          hasImages: !!hasImages
+        };
+      })
+    );
+
+    // Sort by review count (most reviews first)
+    productsWithStats.sort((a, b) => b.reviewCount - a.reviewCount);
+
+    // Calculate overall stats
+    const totalReviews = await Review.countDocuments();
+    const overallAvgRating = await Review.aggregate([
+      { $group: { _id: null, average: { $avg: "$rating" } } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: productsWithStats,
+      totalProducts: total,
+      totalReviews,
+      averageRating: overallAvgRating[0]?.average || 0,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Get products with reviews error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// ⭐ Get All Reviews for a Specific Product
+export const getProductReviews = async (req, res) => {
+  try {
+    const { productId } = req.query;
+
+    if (!productId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Product ID is required" 
+      });
+    }
+
+    const reviews = await Review.find({ product: productId })
+      .populate("user", "name email avatar")
+      .populate("product", "name images")
+      .sort({ createdAt: -1 });
+
+    // Get product stats
+    const product = await Product.findById(productId).select('name images');
+    
+    const avgRating = await Review.aggregate([
+      { $match: { product: productId } },
+      { $group: { _id: null, average: { $avg: "$rating" } } }
+    ]);
+
+    const ratingDist = await Review.aggregate([
+      { $match: { product: productId } },
+      { $group: { _id: "$rating", count: { $sum: 1 } } }
+    ]);
+
+    const ratingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    ratingDist.forEach(r => {
+      ratingDistribution[r._id] = r.count;
+    });
+
+    res.status(200).json({
+      success: true,
+      data: reviews,
+      product: {
+        _id: product._id,
+        name: product.name,
+        image: product.images?.[0],
+        reviewCount: reviews.length,
+        averageRating: avgRating[0]?.average || 0,
+        ratingDistribution
+      }
+    });
+  } catch (error) {
+    console.error("Get product reviews error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+// 🔧 Helper Function: Update Product Rating
+async function updateProductRating(productId) {
+  try {
+    const product = await Product.findById(productId);
+    if (!product) return;
+
+    const reviews = await Review.find({ product: productId });
+    
+    product.reviewsCount = reviews.length;
+    product.ratings = reviews.length > 0
+      ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+      : 0;
+    
+    await product.save();
+  } catch (error) {
+    console.error("Update product rating error:", error);
+  }
+}
+
+// 🗑️ Delete Review
+export const deleteReview = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const review = await Review.findByIdAndDelete(id);
+    if (!review) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Review not found" 
+      });
+    }
+
+    // Update product ratings
+    await updateProductRating(review.product);
+
+    res.status(200).json({
+      success: true,
+      message: "Review deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete review error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+// 🗑️ Bulk Delete Reviews (NEW)
+export const bulkDeleteReviews = async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide review IDs to delete"
+      });
+    }
+
+    // Get reviews to update their products
+    const reviews = await Review.find({ _id: { $in: ids } });
+    const productIds = [...new Set(reviews.map(r => r.product.toString()))];
+
+    // Delete reviews
+    await Review.deleteMany({ _id: { $in: ids } });
+
+    // Update all affected products
+    for (const productId of productIds) {
+      await updateProductRating(productId);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `${ids.length} reviews deleted successfully`,
+    });
+  } catch (error) {
+    console.error("Bulk delete error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// 📊 Get Review Statistics (NEW)
+export const getReviewStats = async (req, res) => {
+  try {
+    const { productId } = req.query;
+    const match = productId ? { product: productId } : {};
+
+    const stats = await Review.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$rating",
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: -1 } }
+    ]);
+
+    const total = await Review.countDocuments(match);
+    const avgRating = await Review.aggregate([
+      { $match: match },
+      { $group: { _id: null, average: { $avg: "$rating" } } }
+    ]);
+
+    // Format stats
+    const ratingDistribution = {
+      5: 0,
+      4: 0,
+      3: 0,
+      2: 0,
+      1: 0
+    };
+
+    stats.forEach(stat => {
+      ratingDistribution[stat._id] = stat.count;
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total,
+        averageRating: avgRating[0]?.average || 0,
+        distribution: ratingDistribution,
+        percentages: {
+          5: total ? ((ratingDistribution[5] / total) * 100).toFixed(1) : 0,
+          4: total ? ((ratingDistribution[4] / total) * 100).toFixed(1) : 0,
+          3: total ? ((ratingDistribution[3] / total) * 100).toFixed(1) : 0,
+          2: total ? ((ratingDistribution[2] / total) * 100).toFixed(1) : 0,
+          1: total ? ((ratingDistribution[1] / total) * 100).toFixed(1) : 0,
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Get stats error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// 📥 Export Reviews to CSV (NEW)
+export const exportReviews = async (req, res) => {
+  try {
+    const { productId, rating, search } = req.query;
+
+    const query = {};
+    if (productId) query.product = productId;
+    if (rating) query.rating = parseInt(rating);
+    if (search) query.comment = { $regex: search, $options: 'i' };
+
+    const reviews = await Review.find(query)
+      .populate("user", "name email")
+      .populate("product", "name")
+      .sort({ createdAt: -1 });
+
+    // Format data for CSV
+    const csvData = reviews.map(r => ({
+      'Review ID': r._id,
+      'Product': r.product?.name || 'N/A',
+      'User': r.user?.name || 'N/A',
+      'Email': r.user?.email || 'N/A',
+      'Rating': r.rating,
+      'Comment': r.comment || 'No comment',
+      'Images': r.images?.length || 0,
+      'Date': new Date(r.createdAt).toLocaleDateString()
+    }));
+
+    // Convert to CSV
+    const { Parser } = require('json2csv');
+    const json2csvParser = new Parser();
+    const csv = json2csvParser.parse(csvData);
+
+    res.header('Content-Type', 'text/csv');
+    res.header('Content-Disposition', `attachment; filename="reviews_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error("Export error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 
 
 // ======================================================
@@ -1496,9 +2125,9 @@ export const createTag = async (req, res) => {
     });
   } catch (error) {
     console.error('Create tag error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Internal server error' 
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
     });
   }
 };
@@ -2409,7 +3038,6 @@ export const deleteSupplier = async (req, res) => {
 
 
 // ==================== INVENTORY CONTROLLER ====================
-// controllers/inventoryController.js
 
 // ==================== GET INVENTORY OVERVIEW STATS ====================
 export const getInventoryOverview = async (req, res) => {
@@ -2842,14 +3470,14 @@ export const getCategoryWiseStock = async (req, res) => {
 export const getSalesStats = async (req, res) => {
   try {
     // Get completed orders only
-    const completedOrders = await Order.find({ 
-      orderStatus: 'Delivered' 
+    const completedOrders = await Order.find({
+      orderStatus: 'Delivered'
     });
 
     const totalSales = completedOrders.reduce((sum, order) => sum + order.totalAmount, 0);
     const totalOrders = completedOrders.length;
     const averageOrder = totalOrders > 0 ? totalSales / totalOrders : 0;
-    
+
     const refunded = await Order.countDocuments({ orderStatus: 'Returned' });
 
     res.status(200).json({
@@ -2874,7 +3502,7 @@ export const getRevenueChart = async (req, res) => {
     startDate.setMonth(startDate.getMonth() - 12);
 
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
+
     const revenueData = await Order.aggregate([
       {
         $match: {
@@ -2926,7 +3554,7 @@ export const getRevenueChart = async (req, res) => {
       date.setMonth(date.getMonth() - i);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const month = months[date.getMonth()];
-      
+
       chartData.push({
         month,
         earning: dataMap[key]?.earning || 0,
@@ -3017,7 +3645,7 @@ export const getSalesReports = async (req, res) => {
       const products = await Product.find({
         name: { $regex: search, $options: 'i' }
       }).select('_id');
-      
+
       query['orderItems.product'] = { $in: products.map(p => p._id) };
     }
 
@@ -3025,7 +3653,7 @@ export const getSalesReports = async (req, res) => {
     if (date) {
       const now = new Date();
       let startDate;
-      
+
       switch (date) {
         case 'today':
           startDate = new Date(now.setHours(0, 0, 0, 0));
@@ -3040,7 +3668,7 @@ export const getSalesReports = async (req, res) => {
           startDate = new Date(now.setFullYear(now.getFullYear() - 1));
           break;
       }
-      
+
       if (startDate) {
         query.createdAt = { $gte: startDate };
       }
@@ -3087,7 +3715,7 @@ export const getSalesReports = async (req, res) => {
 export const exportSalesReports = async (req, res) => {
   try {
     const { ids } = req.query;
-    
+
     let query = { orderStatus: 'Delivered' };
     if (ids) {
       query._id = { $in: ids.split(',') };
@@ -3149,7 +3777,7 @@ export const exportSalesReports = async (req, res) => {
 //     if (date) {
 //       const now = new Date();
 //       let startDate;
-      
+
 //       switch (date) {
 //         case 'today':
 //           startDate = new Date(now.setHours(0, 0, 0, 0));
@@ -3161,7 +3789,7 @@ export const exportSalesReports = async (req, res) => {
 //           startDate = new Date(now.setMonth(now.getMonth() - 1));
 //           break;
 //       }
-      
+
 //       if (startDate) {
 //         query.createdAt = { $gte: startDate };
 //       }
@@ -3309,13 +3937,13 @@ export const exportSalesReports = async (req, res) => {
 // 📋 Get All Transactions with Filters
 export const getTransactions = async (req, res) => {
   try {
-    const { 
-      search, 
-      paymentStatus, 
-      receivedStatus, 
-      dateFilter, 
-      page = 1, 
-      limit = 10 
+    const {
+      search,
+      paymentStatus,
+      receivedStatus,
+      dateFilter,
+      page = 1,
+      limit = 10
     } = req.query;
 
     // Build query
@@ -3481,7 +4109,7 @@ export const createTransaction = async (orderData) => {
   try {
     // First populate user to get email
     const populatedOrder = await Order.findById(orderData._id).populate('user', 'email name');
-    
+
     if (!populatedOrder) {
       throw new Error('Order not found for transaction');
     }
@@ -3490,7 +4118,7 @@ export const createTransaction = async (orderData) => {
     const subtotal = populatedOrder.orderItems.reduce((sum, item) => {
       return sum + (item.price * item.quantity);
     }, 0);
-    
+
     const deliveryFee = populatedOrder.totalAmount - subtotal; // This gives us shipping cost
 
     const transaction = await Transaction.create({

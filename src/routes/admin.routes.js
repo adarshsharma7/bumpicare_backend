@@ -14,6 +14,8 @@ import {
   getSingleProduct,
   addProduct,
   updateProduct,
+  getDraftProducts,
+  publishDraftProduct,
   deleteProduct,
   toggleProductStatus,
   bulkUpdateStock,
@@ -35,7 +37,11 @@ import {
 
   // Reviews
   getAllReviews,
+  getReviewById,
   deleteReview,
+  bulkDeleteReviews,
+  getReviewStats,
+  exportReviews,
 
   // Tags
   getAllTags,
@@ -84,7 +90,11 @@ import {
 
   // Transactions
   getTransactions,
-  exportTransactions
+  exportTransactions,
+  getAllAdmins,
+  getProductsWithReviews,
+  getProductReviews,
+
 
 
 
@@ -107,11 +117,17 @@ router.get("/users", getAllUsers);
 router.get("/users/:id", getUserDetails);
 router.patch("/users/:id/toggle-status", toggleUserStatus);
 
+// Get all admins
+router.get("/admin-list", isAdmin, getAllAdmins);
+
+
 // ==================== PRODUCTS ====================
 router.get("/products", getAdminProducts);
 router.get("/product/:id", getSingleProduct);
 router.post("/product/add", verifyJWT, addProduct);
 router.put("/product/:id", verifyJWT, updateProduct);
+router.get('/products/drafts', isAdmin, getDraftProducts);
+router.patch('/products/:id/publish', isAdmin, publishDraftProduct);
 router.delete("/product/:id", verifyJWT, deleteProduct);
 router.patch("/products/:id/toggle-status", toggleProductStatus);
 router.post("/products/bulk-update-stock", bulkUpdateStock);
@@ -140,8 +156,15 @@ router.put("/categories/:id", updateCategory);
 router.delete("/categories/:id", deleteCategory);
 
 // ==================== REVIEWS ====================
-router.get("/reviews", getAllReviews);
-router.delete("/reviews/:id", deleteReview);
+// router.get('/reviews', verifyJWT, isAdmin, getAllReviews);
+router.get('/reviews/stats', verifyJWT, isAdmin, getReviewStats);
+router.get('/reviews/export', verifyJWT, isAdmin, exportReviews);
+router.delete('/reviews/:id', verifyJWT, isAdmin, deleteReview);
+router.post('/reviews/bulk-delete', verifyJWT, isAdmin, bulkDeleteReviews);
+router.get('/reviews/by-products', verifyJWT, isAdmin, getProductsWithReviews);
+router.get('/reviews', verifyJWT, isAdmin, getProductReviews); 
+router.get('/reviews/:id', verifyJWT, isAdmin, getReviewById);
+
 
 
 // ==================== TAGS ====================
