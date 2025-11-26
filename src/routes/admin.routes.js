@@ -146,7 +146,7 @@ router.get("/orders/recent", verifyJWT, isAdmin, getRecentOrders);
 router.get("/orders/:id", getOrderDetails);
 router.put("/orders/:id/status", updateOrderStatusAdmin);
 // CANCEL ORDER
-router.put("/order/:orderId/cancel", verifyJWT, isAdmin, cancelOrderByAdmin);
+router.put("/order/cancel/:orderId", verifyJWT, isAdmin, cancelOrderByAdmin);
 
 
 // ==================== CATEGORIES ====================

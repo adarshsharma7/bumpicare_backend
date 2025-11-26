@@ -65,7 +65,6 @@ const supplierSchema = new mongoose.Schema(
 
 // Index for better search performance
 supplierSchema.index({ name: 1 });
-supplierSchema.index({ email: 1 });
 supplierSchema.index({ isActive: 1 });
 
 export default mongoose.models.Supplier ||

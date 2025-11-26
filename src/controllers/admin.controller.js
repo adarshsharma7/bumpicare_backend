@@ -496,9 +496,9 @@ export const getRecentOrders = async (req, res) => {
 
 // Admin: Cancel Order
 export const cancelOrderByAdmin = async (req, res) => {
+  
   try {
     const { orderId } = req.params;
-
     const order = await Order.findById(orderId);
     if (!order) {
       return res.status(404).json({ message: "Order not found" });

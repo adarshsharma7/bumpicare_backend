@@ -2,23 +2,35 @@ import mongoose from "mongoose";
 
 const orderSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    user: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: "User", 
+      required: true 
+    },
+
     orderNumber: {
       type: String,
       required: true,
-      unique: true,
+      unique: true,     // <-- unique already creates index
     },
+
     orderItems: [
       {
-        product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+        product: { 
+          type: mongoose.Schema.Types.ObjectId, 
+          ref: "Product", 
+          required: true 
+        },
         quantity: { type: Number, required: true },
         price: { type: Number, required: true },
-        // ✅ ADD THESE for better tracking
+
+        // Extra Trackers
         color: String,
         size: String,
-        productName: String, // Store name in case product is deleted
+        productName: String,
       },
     ],
+
     shippingAddress: {
       fullName: String,
       phone: String,
@@ -27,88 +39,112 @@ const orderSchema = new mongoose.Schema(
       state: String,
       country: String,
       addressLine: String,
-      // ✅ ADD
+
       landmark: String,
-      addressType: { type: String, enum: ['home', 'office', 'other'], default: 'home' },
+      addressType: { 
+        type: String, 
+        enum: ["home", "office", "other"], 
+        default: "home" 
+      },
     },
 
     // Pricing
     subtotal: { type: Number, required: true },
     shippingCost: { type: Number, default: 0 },
-    tax: { type: Number, default: 0 }, // ✅ ADD for GST
-    discount: { type: Number, default: 0 }, // ✅ ADD for coupon discount
-    totalAmount: { type: Number, required: true }, // ❌ Remove duplicate!
-    
-    // ✅ ADD Coupon tracking
+    tax: { type: Number, default: 0 },
+    discount: { type: Number, default: 0 },
+    totalAmount: { type: Number, required: true },
+
+    // Coupon
     couponCode: String,
     couponDiscount: Number,
-    
+
     // Payment
-    paymentMethod: { type: String, enum: ["COD", "ONLINE"], default: "COD" },
-    paymentStatus: { 
+    paymentMethod: { 
       type: String, 
-      enum: ["Pending", "Paid", "Failed", "Refund Initiated", "Refunded"], 
-      default: "Pending" 
+      enum: ["COD", "ONLINE"], 
+      default: "COD" 
+    },
+
+    paymentStatus: {
+      type: String,
+      enum: ["Pending", "Paid", "Failed", "Refund Initiated", "Refunded"],
+      default: "Pending",
     },
 
     // Razorpay
-    razorpayOrderId: { type: String },
-    paymentId: { type: String },
-    razorpaySignature: { type: String },
+    razorpayOrderId: String,
+    paymentId: String,
+    razorpaySignature: String,
 
     // Order Status
     orderStatus: {
       type: String,
-      enum: ["Processing", "Confirmed", "Packed", "Shipped", "Out for Delivery", "Delivered", "Cancelled", "Returned"],
+      enum: [
+        "Processing",
+        "Confirmed",
+        "Packed",
+        "Shipped",
+        "Out for Delivery",
+        "Delivered",
+        "Cancelled",
+        "Returned",
+      ],
       default: "Processing",
     },
-    
-    // ✅ ADD Status History for tracking
-    statusHistory: [{
-      status: String,
-      timestamp: { type: Date, default: Date.now },
-      note: String,
-      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
-    }],
-    
-    // ✅ ADD Tracking Info
-    trackingNumber: String,
+
+    // Status History
+    statusHistory: [
+      {
+        status: String,
+        timestamp: { type: Date, default: Date.now },
+        note: String,
+        updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      },
+    ],
+
+    // Tracking
+    trackingNumber: { type: String }, // DON'T index manually (no need)
     trackingUrl: String,
     courier: String,
     estimatedDelivery: Date,
     deliveredAt: Date,
-    
+
     // Refund
     refundId: String,
     refundStatus: String,
     refundAmount: Number,
     refundReason: String,
-    
-    // ✅ ADD Cancellation Info
+
+    // Cancellation
     cancellationReason: String,
     cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     cancelledAt: Date,
-    
+
     // Notes
     note: String,
-    adminNote: String, // ✅ ADD for internal notes
-    
-    // ✅ ADD Invoice
+    adminNote: String,
+
+    // Invoice
     invoiceNumber: String,
     invoiceUrl: String,
   },
   { timestamps: true }
 );
 
-// ✅ ADD Indexes
+// ----------------------------------------------------
+// ✅ SAFE INDEXES (No duplicates)
+// ----------------------------------------------------
 orderSchema.index({ user: 1, createdAt: -1 });
-orderSchema.index({ orderNumber: 1 });
 orderSchema.index({ orderStatus: 1 });
 orderSchema.index({ paymentStatus: 1 });
 
-// ✅ ADD Pre-save hook to update status history
-orderSchema.pre('save', function(next) {
-  if (this.isModified('orderStatus')) {
+
+// ----------------------------------------------------
+// Pre-save hook for status history
+// ----------------------------------------------------
+orderSchema.pre("save", function (next) {
+  if (this.isModified("orderStatus")) {
     this.statusHistory.push({
       status: this.orderStatus,
       timestamp: new Date(),

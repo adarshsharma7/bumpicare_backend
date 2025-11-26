@@ -72,8 +72,6 @@ const transactionSchema = new mongoose.Schema(
 // ✅ ADD Indexes
 transactionSchema.index({ orderId: 1 });
 transactionSchema.index({ userId: 1 });
-transactionSchema.index({ trackingNumber: 1 });
-transactionSchema.index({ email: 1 });
 transactionSchema.index({ paymentStatus: 1 });
 transactionSchema.index({ date: -1 });
 

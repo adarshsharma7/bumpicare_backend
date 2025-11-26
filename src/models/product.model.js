@@ -142,7 +142,6 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 // ✅ ADD Indexes for better performance
-productSchema.index({ slug: 1 });
 productSchema.index({ category: 1, isActive: 1 });
 productSchema.index({ price: 1 });
 productSchema.index({ stock: 1 });
