@@ -21,13 +21,13 @@ const transactionSchema = new mongoose.Schema(
     // Amounts
     productPrice: { type: Number, required: true },
     deliveryFee: { type: Number, default: 0 },
-    tax: { type: Number, default: 0 }, // ✅ ADD
-    discount: { type: Number, default: 0 }, // ✅ ADD
-    totalAmount: { type: Number, required: true }, // ✅ ADD
+    tax: { type: Number, default: 0 }, 
+    discount: { type: Number, default: 0 }, 
+    totalAmount: { type: Number, required: true }, 
 
     paymentMethod: {
       type: String,
-      enum: ['Master Card', 'Visa', 'PayPal', 'COD', 'UPI', 'Wallet'], // ✅ ADD Wallet
+      enum: ['Master Card', 'Visa', 'PayPal', 'COD', 'ONLINE', 'Wallet'], // ✅ ADD Wallet
       default: 'COD',
     },
     email: {

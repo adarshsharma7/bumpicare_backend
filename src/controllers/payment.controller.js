@@ -8,6 +8,7 @@ import User  from "../models/user.model.js";
 import  Product  from "../models/product.model.js";
 import Cart  from "../models/cart.model.js";
 import Order  from "../models/order.model.js";
+import { createTransaction } from "./admin.controller.js";
 
 // 🧾 Create Razorpay Order
 export const createPaymentOrder = asyncHandler(async (req, res) => {
@@ -37,6 +38,7 @@ export const createPaymentOrder = asyncHandler(async (req, res) => {
 // ✅ Verify Payment & Create Order
 export const verifyPayment = asyncHandler(async (req, res) => {
   const user = req.user;
+
   if (!user) throw new ApiError(401, "Unauthorized");
 
   const {
@@ -103,12 +105,19 @@ export const verifyPayment = asyncHandler(async (req, res) => {
     paymentStatus: "Paid",
     orderStatus: "Processing",
     totalAmount,
+    subtotal:totalAmount,
     note,
     orderNumber: generateOrderNumber(),
     paymentId: razorpay_payment_id,
     razorpayOrderId: razorpay_order_id,
     razorpaySignature: razorpay_signature,
   });
+    // ✅ Create transaction
+    try {
+      await createTransaction(order);
+    } catch (error) {
+      console.error('Transaction creation failed:', error);
+    }
 
   await order.populate("orderItems.product", "name images price");
 

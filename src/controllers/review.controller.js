@@ -77,7 +77,6 @@ export const updateReview = asyncHandler(async (req, res) => {
 
   const { reviewId, rating, comment, removeImageIds } = req.body;
   if (!reviewId) throw new ApiError(400, "Review ID required");
-
   const review = await Review.findOne({ _id: reviewId, user: authUser._id });
   if (!review) throw new ApiError(404, "Review not found");
 

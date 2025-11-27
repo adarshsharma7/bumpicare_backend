@@ -95,7 +95,26 @@ import {
   getProductsWithReviews,
   getProductReviews,
 
+  getFinanceStats,
+  getFinanceChart,
+  getFinanceTransactions,
+  exportFinanceData,
+  processPayout,
+  processRefund,
 
+  // withdrwals
+  getWithdrawalSummary,
+  getAllWithdrawals,
+  getSingleWithdrawal,
+  createWithdrawalRequest,
+  updateWithdrawalStatus,
+  approveWithdrawal,
+
+  //Refunds
+  getRefunds,
+  getRefundById,
+  exportRefunds,
+  getRefundStats
 
 
 } from "../controllers/admin.controller.js";
@@ -162,7 +181,7 @@ router.get('/reviews/export', verifyJWT, isAdmin, exportReviews);
 router.delete('/reviews/:id', verifyJWT, isAdmin, deleteReview);
 router.post('/reviews/bulk-delete', verifyJWT, isAdmin, bulkDeleteReviews);
 router.get('/reviews/by-products', verifyJWT, isAdmin, getProductsWithReviews);
-router.get('/reviews', verifyJWT, isAdmin, getProductReviews); 
+router.get('/reviews', verifyJWT, isAdmin, getProductReviews);
 router.get('/reviews/:id', verifyJWT, isAdmin, getReviewById);
 
 
@@ -255,4 +274,28 @@ router.get('/transactions', isAdmin, getTransactions);
 router.get('/transactions/export', isAdmin, exportTransactions);
 
 
-export default router;
+
+router.get('/finance/stats', verifyJWT, isAdmin, getFinanceStats);
+router.get('/finance/chart', verifyJWT, isAdmin, getFinanceChart);
+router.get('/finance/transactions', verifyJWT, isAdmin, getFinanceTransactions);
+router.get('/finance/export', verifyJWT, isAdmin, exportFinanceData);
+router.post('/finance/payout/:transactionId', verifyJWT, isAdmin, processPayout);
+router.post('/finance/refund/:orderId', verifyJWT, isAdmin, processRefund);
+
+// Admin routes
+router.get('/admin/withdrawals/summary', isAdmin, getWithdrawalSummary);
+router.get('/admin/withdrawals', isAdmin, getAllWithdrawals);
+router.get('/admin/withdrawals/:id', isAdmin, getSingleWithdrawal);
+router.patch('/admin/withdrawals/:id/status', isAdmin, updateWithdrawalStatus);
+router.patch('/admin/withdrawals/:id/payout', isAdmin, approveWithdrawal);
+
+// Seller routes
+router.post('/seller/withdrawals', isAdmin, createWithdrawalRequest); //need isSeller verification not isAdmin
+router.get('/seller/withdrawals', isAdmin, getAllWithdrawals); // Filtered by seller
+
+// refunds
+router.get('/refunds/stats', verifyJWT, isAdmin, getRefundStats);
+router.get('/refunds//export', verifyJWT, isAdmin, exportRefunds);
+router.get('/refunds/:id', verifyJWT, isAdmin, getRefundById);
+router.get('/refunds', verifyJWT, isAdmin, getRefunds);
+export default router;  

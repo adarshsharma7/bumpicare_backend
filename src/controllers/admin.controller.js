@@ -11,6 +11,7 @@ import Warehouse from '../models/Warehouse.js';
 import Supplier from '../models/Supplier.js';
 import InventoryMovement from '../models/InventoryMovement.js';
 import Transaction from '../models/Transaction.js';
+import Withdrawal from '../models/Withdrawal.js';
 import { Parser } from 'json2csv';
 
 import { ApiResponse } from "../utils/ApiResponse.js";
@@ -332,7 +333,7 @@ export const getAllUsers = async (req, res) => {
   }
 };
 
-// 👑 Get All Admins
+//  Get All Admins
 export const getAllAdmins = async (req, res) => {
   try {
     const { search, page = 1, limit = 20 } = req.query;
@@ -496,7 +497,7 @@ export const getRecentOrders = async (req, res) => {
 
 // Admin: Cancel Order
 export const cancelOrderByAdmin = async (req, res) => {
-  
+
   try {
     const { orderId } = req.params;
     const order = await Order.findById(orderId);
@@ -524,14 +525,14 @@ export const cancelOrderByAdmin = async (req, res) => {
 // 📦 Get All Products (Admin + Filters + Pagination)
 export const getAdminProducts = async (req, res) => {
   try {
-    let { 
-      search = "", 
-      category, 
+    let {
+      search = "",
+      category,
       seller,
-      isActive, 
-      page = 1, 
+      isActive,
+      page = 1,
       limit = 10,
-      sort = '-createdAt' 
+      sort = '-createdAt'
     } = req.query;
 
     page = Number(page);
@@ -1521,9 +1522,9 @@ export const getProductsWithReviews = async (req, res) => {
         });
 
         // Check if any review has images
-        const hasImages = await Review.exists({ 
-          product: product._id, 
-          'images.0': { $exists: true } 
+        const hasImages = await Review.exists({
+          product: product._id,
+          'images.0': { $exists: true }
         });
 
         return {
@@ -1572,9 +1573,9 @@ export const getProductReviews = async (req, res) => {
     const { productId } = req.query;
 
     if (!productId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Product ID is required" 
+      return res.status(400).json({
+        success: false,
+        message: "Product ID is required"
       });
     }
 
@@ -1585,7 +1586,7 @@ export const getProductReviews = async (req, res) => {
 
     // Get product stats
     const product = await Product.findById(productId).select('name images');
-    
+
     const avgRating = await Review.aggregate([
       { $match: { product: productId } },
       { $group: { _id: null, average: { $avg: "$rating" } } }
@@ -1625,12 +1626,12 @@ async function updateProductRating(productId) {
     if (!product) return;
 
     const reviews = await Review.find({ product: productId });
-    
+
     product.reviewsCount = reviews.length;
     product.ratings = reviews.length > 0
       ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
       : 0;
-    
+
     await product.save();
   } catch (error) {
     console.error("Update product rating error:", error);
@@ -1644,9 +1645,9 @@ export const deleteReview = async (req, res) => {
 
     const review = await Review.findByIdAndDelete(id);
     if (!review) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Review not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Review not found"
       });
     }
 
@@ -3034,9 +3035,6 @@ export const deleteSupplier = async (req, res) => {
     });
   }
 };
-
-
-
 // ==================== INVENTORY CONTROLLER ====================
 
 // ==================== GET INVENTORY OVERVIEW STATS ====================
@@ -4123,8 +4121,10 @@ export const createTransaction = async (orderData) => {
 
     const transaction = await Transaction.create({
       orderId: populatedOrder._id,
+      userId: populatedOrder.user._id,
       trackingNumber: populatedOrder.orderNumber,
-      productPrice: subtotal, // Only product price (without shipping)
+      productPrice: subtotal,
+      totalAmount: populatedOrder.totalAmount, // Only product price (without shipping)
       deliveryFee: deliveryFee, // Shipping cost
       paymentMethod: populatedOrder.paymentMethod || 'COD',
       email: populatedOrder.user.email, // Now this will work
@@ -4133,7 +4133,7 @@ export const createTransaction = async (orderData) => {
       date: populatedOrder.createdAt,
     });
 
-    console.log('✅ Transaction created:', transaction._id);
+    // console.log('✅ Transaction created:', transaction._id);
     return transaction;
   } catch (error) {
     console.error('❌ Create transaction error:', error);
@@ -4141,3 +4141,1065 @@ export const createTransaction = async (orderData) => {
     return null;
   }
 };
+
+
+
+
+// ============================================
+// 📁 controllers/financeController.js
+// ============================================
+
+// 📊 Get Finance Statistics (Using Orders & Transactions)
+export const getFinanceStats = async (req, res) => {
+  try {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // ✅ Current Month Orders
+    const currentOrders = await Order.find({
+      createdAt: { $gte: thisMonth },
+      paymentStatus: { $in: ['Paid', 'Refunded'] }
+    });
+
+    // ✅ Last Month Orders
+    const lastMonthOrders = await Order.find({
+      createdAt: { $gte: lastMonth, $lt: thisMonth },
+      paymentStatus: { $in: ['Paid', 'Refunded'] }
+    });
+
+    // Calculate Income (Total Amount from Paid orders)
+    const totalIncome = currentOrders
+      .filter(o => o.paymentStatus === 'Paid')
+      .reduce((sum, o) => sum + o.totalAmount, 0);
+
+    const lastIncome = lastMonthOrders
+      .filter(o => o.paymentStatus === 'Paid')
+      .reduce((sum, o) => sum + o.totalAmount, 0);
+
+    // Calculate Expenses (Shipping + Tax + Refunds)
+    const totalExpenses = currentOrders.reduce((sum, o) => {
+      return sum + (o.shippingCost || 0) + (o.tax || 0);
+    }, 0);
+
+    // Add refund amounts to expenses
+    const refundAmount = currentOrders
+      .filter(o => o.paymentStatus === 'Refunded')
+      .reduce((sum, o) => sum + (o.refundAmount || o.totalAmount), 0);
+
+    const totalExpensesWithRefunds = totalExpenses + refundAmount;
+
+    const lastExpenses = lastMonthOrders.reduce((sum, o) => {
+      return sum + (o.shippingCost || 0) + (o.tax || 0);
+    }, 0) + lastMonthOrders
+      .filter(o => o.paymentStatus === 'Refunded')
+      .reduce((sum, o) => sum + (o.refundAmount || o.totalAmount), 0);
+
+    // Calculate Revenue (Income - Expenses)
+    const totalRevenue = totalIncome - totalExpensesWithRefunds;
+    const lastRevenue = lastIncome - lastExpenses;
+
+    // Calculate Average Earning per order
+    const paidOrders = currentOrders.filter(o => o.paymentStatus === 'Paid');
+    const averageEarning = paidOrders.length > 0
+      ? totalIncome / paidOrders.length
+      : 0;
+
+    const lastPaidOrders = lastMonthOrders.filter(o => o.paymentStatus === 'Paid');
+    const lastAverage = lastPaidOrders.length > 0
+      ? lastIncome / lastPaidOrders.length
+      : 0;
+
+    // Calculate percentage changes
+    const calculateChange = (current, last) => {
+      if (last === 0) return current > 0 ? 100 : 0;
+      return Number(((current - last) / last * 100).toFixed(1));
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalIncome: Math.round(totalIncome),
+        totalExpenses: Math.round(totalExpensesWithRefunds),
+        totalRevenue: Math.round(totalRevenue),
+        averageEarning: Math.round(averageEarning),
+        incomeChange: calculateChange(totalIncome, lastIncome),
+        expensesChange: calculateChange(totalExpensesWithRefunds, lastExpenses),
+        revenueChange: calculateChange(totalRevenue, lastRevenue),
+        earningChange: calculateChange(averageEarning, lastAverage),
+      }
+    });
+  } catch (error) {
+    console.error('Get finance stats error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 📈 Get Chart Data (Using Orders)
+export const getFinanceChart = async (req, res) => {
+  try {
+    const { period = '12months' } = req.query;
+
+    let startDate, groupBy;
+    const now = new Date();
+
+    switch (period) {
+      case '24hours':
+        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        groupBy = { $hour: '$createdAt' };
+        break;
+      case '7days':
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        groupBy = { $dayOfWeek: '$createdAt' };
+        break;
+      case '30days':
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        groupBy = { $dayOfMonth: '$createdAt' };
+        break;
+      case '12months':
+      default:
+        startDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+        groupBy = { $month: '$createdAt' };
+        break;
+    }
+
+    // ✅ Aggregate earnings (paid orders) and expenses
+    const data = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          paymentStatus: { $in: ['Paid', 'Refunded'] }
+        }
+      },
+      {
+        $group: {
+          _id: groupBy,
+          earning: {
+            $sum: {
+              $cond: [
+                { $eq: ['$paymentStatus', 'Paid'] },
+                '$totalAmount',
+                0
+              ]
+            }
+          },
+          expenses: {
+            $sum: {
+              $add: [
+                { $ifNull: ['$shippingCost', 0] },
+                { $ifNull: ['$tax', 0] },
+                {
+                  $cond: [
+                    { $eq: ['$paymentStatus', 'Refunded'] },
+                    { $ifNull: ['$refundAmount', '$totalAmount'] },
+                    0
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Format data based on period
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    const formatted = data.map(item => {
+      let name;
+      if (period === '12months') {
+        name = monthNames[item._id - 1];
+      } else if (period === '7days') {
+        name = dayNames[item._id - 1];
+      } else {
+        name = item._id.toString();
+      }
+
+      return {
+        name,
+        earning: Math.round(item.earning / 1000), // Convert to thousands
+        expenses: Math.round(item.expenses / 1000),
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: formatted
+    });
+  } catch (error) {
+    console.error('Get finance chart error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 💰 Get Transactions (Using Transaction Model)
+export const getFinanceTransactions = async (req, res) => {
+  try {
+    const {
+      search,
+      paymentMethod,
+      status,
+      dateFilter,
+      page = 1,
+      limit = 20
+    } = req.query;
+
+    const query = {};
+
+    // Search
+    if (search) {
+      query.$or = [
+        { trackingNumber: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Payment Method Filter
+    if (paymentMethod) {
+      query.paymentMethod = paymentMethod;
+    }
+
+    // Status Filter
+    if (status) {
+      // Map frontend status to backend
+      const statusMap = {
+        'received': 'paid',
+        'pending': 'pending',
+        'failed': 'failed',
+        'completed': 'paid'
+      };
+      query.paymentStatus = statusMap[status] || status;
+    }
+
+    // Date filter
+    if (dateFilter) {
+      const now = new Date();
+      let startDate;
+
+      switch (dateFilter) {
+        case 'today':
+          startDate = new Date(now.setHours(0, 0, 0, 0));
+          break;
+        case 'week':
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case 'month':
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case 'year':
+          startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+      }
+
+      if (startDate) {
+        query.createdAt = { $gte: startDate };
+      }
+    }
+
+    const transactions = await Transaction.find(query)
+      .populate('userId', 'name email')
+      .populate('orderId', 'orderNumber orderStatus')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Transaction.countDocuments(query);
+
+    // ✅ Format for frontend
+    const formatted = transactions.map(t => ({
+      _id: t._id,
+      transactionId: t.trackingNumber,
+      amount: t.totalAmount,
+      paymentMethod: t.paymentMethod,
+      status: t.paymentStatus === 'paid' ? 'received' : t.paymentStatus,
+      email: t.email,
+      user: t.userId,
+      order: t.orderId,
+      createdAt: t.createdAt
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formatted,
+      pagination: {
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / limit),
+      }
+    });
+  } catch (error) {
+    console.error('Get transactions error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 📥 Export Finance Data
+export const exportFinanceData = async (req, res) => {
+  try {
+    // ✅ Get all transactions
+    const transactions = await Transaction.find()
+      .populate('userId', 'name email')
+      .populate('orderId', 'orderNumber')
+      .sort({ createdAt: -1 });
+
+    const csvData = transactions.map(t => ({
+      'Transaction ID': t.trackingNumber,
+      'Order Number': t.orderId?.orderNumber || 'N/A',
+      'Amount': `$${t.totalAmount?.toFixed(2)}`,
+      'Product Price': `$${t.productPrice?.toFixed(2)}`,
+      'Delivery Fee': `$${t.deliveryFee?.toFixed(2)}`,
+      'Tax': `$${t.tax?.toFixed(2)}`,
+      'Discount': `$${t.discount?.toFixed(2)}`,
+      'Payment Method': t.paymentMethod,
+      'Payment Status': t.paymentStatus,
+      'Order Status': t.status,
+      'User': t.userId?.name || 'N/A',
+      'Email': t.email,
+      'Date': new Date(t.createdAt).toLocaleDateString()
+    }));
+
+    const json2csvParser = new Parser();
+    const csv = json2csvParser.parse(csvData);
+
+    res.header('Content-Type', 'text/csv');
+    res.header('Content-Disposition', `attachment; filename="finance_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Export finance error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 💸 Process Payout (Mark transaction as completed)
+export const processPayout = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const { notes } = req.body;
+
+    const transaction = await Transaction.findById(transactionId);
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+
+    if (transaction.paymentStatus === 'paid') {
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction already completed'
+      });
+    }
+
+    // ✅ Update transaction to paid
+    transaction.paymentStatus = 'paid';
+    transaction.status = 'Delivered';
+    await transaction.save();
+
+    // ✅ Also update order if exists
+    if (transaction.orderId) {
+      await Order.findByIdAndUpdate(transaction.orderId, {
+        paymentStatus: 'Paid',
+        $push: {
+          statusHistory: {
+            status: 'Payment Confirmed',
+            timestamp: new Date(),
+            note: notes || 'Payout processed'
+          }
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Payout processed successfully',
+      data: transaction
+    });
+  } catch (error) {
+    console.error('Process payout error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 🔄 Process Refund
+export const processRefund = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { amount, reason } = req.body;
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    if (order.paymentStatus === 'Refunded') {
+      return res.status(400).json({
+        success: false,
+        message: 'Order already refunded'
+      });
+    }
+
+    // ✅ Update order
+    order.paymentStatus = 'Refunded';
+    order.refundAmount = amount || order.totalAmount;
+    order.refundReason = reason;
+    order.refundId = `REF${Date.now()}`;
+    order.statusHistory.push({
+      status: 'Refunded',
+      timestamp: new Date(),
+      note: reason
+    });
+    await order.save();
+
+    // ✅ Update transaction
+    await Transaction.updateOne(
+      { orderId: order._id },
+      {
+        paymentStatus: 'refunded',
+        refundAmount: amount || order.totalAmount,
+        refundDate: new Date(),
+        refundReason: reason
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Refund processed successfully',
+      data: order
+    });
+  } catch (error) {
+    console.error('Process refund error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// // 📊 Get Withdrawal Summary
+// export const getWithdrawalSummary = async (req, res) => {
+//   try {
+//     // Total paid amount
+//     const paidTransactions = await Transaction.aggregate([
+//       { $match: { paymentStatus: 'paid' } },
+//       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+//     ]);
+
+//     // Pending withdrawals
+//     const pendingTransactions = await Transaction.aggregate([
+//       { $match: { paymentStatus: 'pending' } },
+//       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+//     ]);
+
+//     // Refunded amount
+//     const refundedOrders = await Order.aggregate([
+//       { $match: { paymentStatus: 'Refunded' } },
+//       { $group: { _id: null, total: { $sum: '$refundAmount' } } }
+//     ]);
+
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         totalPaid: paidTransactions[0]?.total || 0,
+//         pendingWithdrawal: pendingTransactions[0]?.total || 0,
+//         totalRefunded: refundedOrders[0]?.total || 0,
+//         availableBalance: (paidTransactions[0]?.total || 0) - (refundedOrders[0]?.total || 0)
+//       }
+//     });
+//   } catch (error) {
+//     console.error('Get withdrawal summary error:', error);
+//     res.status(500).json({ success: false, message: 'Internal server error' });
+//   }
+// };
+
+
+// ==================== WITHDRAWAL CONTROLLER ====================
+
+
+// ==================== GET WITHDRAWAL SUMMARY ====================
+export const getWithdrawalSummary = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized. Admin access required.',
+      });
+    }
+
+    // Total Withdrawals (all completed)
+    const totalResult = await Withdrawal.aggregate([
+      { $match: { paymentStatus: 'Completed' } },
+      { $group: { _id: null, total: { $sum: '$requestedAmount' } } },
+    ]);
+    const totalWithdrawals = totalResult[0]?.total || 0;
+
+    // Pending Withdrawals
+    const pendingResult = await Withdrawal.aggregate([
+      { $match: { paymentStatus: 'Pending' } },
+      { $group: { _id: null, total: { $sum: '$requestedAmount' } } },
+    ]);
+    const pendingWithdrawals = pendingResult[0]?.total || 0;
+
+    // Invoice Count (Approved/Completed)
+    const invoiceCount = await Withdrawal.countDocuments({
+      paymentStatus: { $in: ['Approved', 'Completed'] },
+    });
+
+    // Rejected
+    const rejectedResult = await Withdrawal.aggregate([
+      { $match: { paymentStatus: 'Rejected' } },
+      { $group: { _id: null, total: { $sum: '$requestedAmount' } } },
+    ]);
+    const rejectedAmount = rejectedResult[0]?.total || 0;
+
+    // Calculate percentage changes (last 30 days vs previous 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+
+    const currentPeriod = await Withdrawal.aggregate([
+      { $match: { createdAt: { $gte: thirtyDaysAgo }, paymentStatus: 'Completed' } },
+      { $group: { _id: null, total: { $sum: '$requestedAmount' } } },
+    ]);
+
+    const previousPeriod = await Withdrawal.aggregate([
+      { $match: { createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo }, paymentStatus: 'Completed' } },
+      { $group: { _id: null, total: { $sum: '$requestedAmount' } } },
+    ]);
+
+    const current = currentPeriod[0]?.total || 0;
+    const previous = previousPeriod[0]?.total || 1;
+    const changePercentage = Math.round(((current - previous) / previous) * 100);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalWithdrawals: Math.round(totalWithdrawals),
+        pendingWithdrawals: Math.round(pendingWithdrawals),
+        invoiceCount,
+        rejectedAmount: Math.round(rejectedAmount),
+        changePercentage,
+      },
+    });
+  } catch (error) {
+    console.error('Get withdrawal summary error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET ALL WITHDRAWALS ====================
+export const getAllWithdrawals = async (req, res) => {
+  try {
+    const { seller, status, paymentMethod, startDate, endDate, search } = req.query;
+
+    let filter = {};
+
+    // Seller filter
+    if (seller && mongoose.Types.ObjectId.isValid(seller)) {
+      filter.seller = seller;
+    }
+
+    // Status filter
+    if (status) {
+      filter.paymentStatus = status;
+    }
+
+    // Payment method filter
+    if (paymentMethod) {
+      filter.paymentMethod = paymentMethod;
+    }
+
+    // Date range filter
+    if (startDate || endDate) {
+      filter.requestedDate = {};
+      if (startDate) filter.requestedDate.$gte = new Date(startDate);
+      if (endDate) filter.requestedDate.$lte = new Date(endDate);
+    }
+
+    // Search filter (by withdrawal ID)
+    if (search) {
+      filter.withdrawalId = { $regex: search, $options: 'i' };
+    }
+
+    const withdrawals = await Withdrawal.find(filter)
+      .populate('seller', 'name email shopName phone')
+      .populate('processedBy', 'name email')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: withdrawals,
+      count: withdrawals.length,
+    });
+  } catch (error) {
+    console.error('Get withdrawals error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== GET SINGLE WITHDRAWAL ====================
+export const getSingleWithdrawal = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const withdrawal = await Withdrawal.findById(id)
+      .populate('seller', 'name email shopName phone address')
+      .populate('processedBy', 'name email')
+      .populate('statusHistory.updatedBy', 'name');
+
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: withdrawal,
+    });
+  } catch (error) {
+    console.error('Get withdrawal error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== CREATE WITHDRAWAL REQUEST ====================
+export const createWithdrawalRequest = async (req, res) => {
+  try {
+    const seller = req.user; // Assuming seller is authenticated
+
+    if (!seller || seller.role !== 'seller') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized. Seller access required.',
+      });
+    }
+
+    const {
+      requestedAmount,
+      paymentMethod,
+      note,
+      bankDetails,
+      upiId,
+      paypalEmail,
+    } = req.body;
+
+    if (!requestedAmount || requestedAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid requested amount is required',
+      });
+    }
+
+    // Check seller balance (implement your logic here)
+    // const sellerBalance = await getSellerBalance(seller._id);
+    // if (sellerBalance < requestedAmount) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'Insufficient balance',
+    //   });
+    // }
+
+    const withdrawal = await Withdrawal.create({
+      seller: seller._id,
+      requestedAmount,
+      paymentMethod: paymentMethod || 'Wallet',
+      note,
+      bankDetails,
+      upiId,
+      paypalEmail,
+      paymentStatus: 'Pending',
+    });
+
+    await withdrawal.populate('seller', 'name email shopName');
+
+    return res.status(201).json({
+      success: true,
+      message: 'Withdrawal request created successfully',
+      data: withdrawal,
+    });
+  } catch (error) {
+    console.error('Create withdrawal error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== UPDATE WITHDRAWAL STATUS ====================
+export const updateWithdrawalStatus = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized. Admin access required.',
+      });
+    }
+
+    const { id } = req.params;
+    const { paymentStatus, note, rejectionReason, transactionId } = req.body;
+
+    const withdrawal = await Withdrawal.findById(id);
+
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal not found',
+      });
+    }
+
+    // Update status
+    withdrawal.paymentStatus = paymentStatus;
+
+    if (paymentStatus === 'Rejected' && rejectionReason) {
+      withdrawal.rejectionReason = rejectionReason;
+    }
+
+    if (paymentStatus === 'Completed') {
+      withdrawal.payoutDate = new Date();
+      withdrawal.transactionId = transactionId;
+    }
+
+    withdrawal.processedBy = admin._id;
+    withdrawal.processedAt = new Date();
+
+    // Add to history
+    withdrawal.statusHistory.push({
+      status: paymentStatus,
+      note: note || rejectionReason,
+      updatedBy: admin._id,
+      timestamp: new Date(),
+    });
+
+    await withdrawal.save();
+    await withdrawal.populate('seller', 'name email shopName');
+    await withdrawal.populate('processedBy', 'name email');
+
+    return res.status(200).json({
+      success: true,
+      message: `Withdrawal ${paymentStatus.toLowerCase()} successfully`,
+      data: withdrawal,
+    });
+  } catch (error) {
+    console.error('Update withdrawal error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+// ==================== APPROVE WITHDRAWAL (PAYOUT) ====================
+export const approveWithdrawal = async (req, res) => {
+  try {
+    const admin = req.user;
+
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized. Admin access required.',
+      });
+    }
+
+    const { id } = req.params;
+    const { transactionId, note } = req.body;
+
+    const withdrawal = await Withdrawal.findById(id);
+
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal not found',
+      });
+    }
+
+    if (withdrawal.paymentStatus !== 'Pending' && withdrawal.paymentStatus !== 'Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending or approved withdrawals can be paid out',
+      });
+    }
+
+    withdrawal.paymentStatus = 'Completed';
+    withdrawal.payoutDate = new Date();
+    withdrawal.transactionId = transactionId;
+    withdrawal.processedBy = admin._id;
+    withdrawal.processedAt = new Date();
+
+    withdrawal.statusHistory.push({
+      status: 'Completed',
+      note: note || 'Payment completed',
+      updatedBy: admin._id,
+      timestamp: new Date(),
+    });
+
+    await withdrawal.save();
+    await withdrawal.populate('seller', 'name email shopName');
+
+    // TODO: Update seller wallet/balance here
+
+    return res.status(200).json({
+      success: true,
+      message: 'Withdrawal paid out successfully',
+      data: withdrawal,
+    });
+  } catch (error) {
+    console.error('Approve withdrawal error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+
+
+// 💰 Get All Refunds
+export const getRefunds = async (req, res) => {
+  try {
+    const {
+      search,
+      paymentMethod,
+      status,
+      dateFilter,
+      page = 1,
+      limit = 10
+    } = req.query;
+
+    const query = {
+      paymentStatus: { $in: ['Refund Initiated', 'Refunded'] }
+    };
+
+    // Payment Method Filter
+    if (paymentMethod) {
+      query.paymentMethod = paymentMethod;
+    }
+
+    // Status Filter
+    if (status) {
+      query.paymentStatus = status;
+    }
+
+    // Date Filter
+    if (dateFilter) {
+      const now = new Date();
+      let startDate;
+
+      switch (dateFilter) {
+        case 'today':
+          startDate = new Date(now.setHours(0, 0, 0, 0));
+          break;
+        case 'week':
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case 'month':
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case 'year':
+          startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+      }
+
+      if (startDate) {
+        query.createdAt = { $gte: startDate };
+      }
+    }
+
+    // Search by order number or customer
+    if (search) {
+      const users = await User.find({
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } }
+        ]
+      }).select('_id');
+
+      query.$or = [
+        { orderNumber: { $regex: search, $options: 'i' } },
+        { user: { $in: users.map(u => u._id) } }
+      ];
+    }
+
+    const refunds = await Order.find(query)
+      .populate('user', 'name email phone address')
+      .populate('orderItems.product', 'name images')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Order.countDocuments(query);
+
+    // Format response
+    const formatted = refunds.map(order => ({
+      _id: order._id,
+      orderNumber: order.orderNumber,
+      customerName: order.user?.name || order.shippingAddress?.fullName,
+      customerEmail: order.user?.email,
+      customerPhone: order.user?.phone || order.shippingAddress?.phone,
+      customerAddress: order.shippingAddress?.addressLine,
+      refundAmount: order.refundAmount || order.totalAmount,
+      refundReason: order.refundReason,
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      orderItems: order.orderItems,
+      createdAt: order.createdAt,
+      refundedAt: order.refundedAt,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formatted,
+      pagination: {
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / limit),
+      }
+    });
+  } catch (error) {
+    console.error('Get refunds error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 👁️ Get Single Refund Details
+export const getRefundById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await Order.findById(id)
+      .populate('user', 'name email phone address')
+      .populate('orderItems.product', 'name images price');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Refund not found'
+      });
+    }
+
+    if (!['Refund Initiated', 'Refunded'].includes(order.paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This is not a refund order'
+      });
+    }
+
+    const formatted = {
+      _id: order._id,
+      orderNumber: order.orderNumber,
+      customerName: order.user?.name || order.shippingAddress?.fullName,
+      customerEmail: order.user?.email,
+      customerPhone: order.user?.phone || order.shippingAddress?.phone,
+      customerAddress: `${order.shippingAddress?.addressLine}, ${order.shippingAddress?.city}, ${order.shippingAddress?.state}`,
+      refundAmount: order.refundAmount || order.totalAmount,
+      refundReason: order.refundReason,
+      refundId: order.refundId,
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      orderItems: order.orderItems.map(item => ({
+        _id: item._id,
+        productName: item.product?.name || item.productName,
+        quantity: item.quantity,
+        price: item.price,
+        color: item.color,
+        size: item.size,
+      })),
+      subtotal: order.subtotal,
+      shippingCost: order.shippingCost,
+      tax: order.tax,
+      totalAmount: order.totalAmount,
+      createdAt: order.createdAt,
+      refundedAt: order.refundedAt,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: formatted
+    });
+  } catch (error) {
+    console.error('Get refund details error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 📥 Export Refunds to CSV
+export const exportRefunds = async (req, res) => {
+  try {
+    const refunds = await Order.find({
+      paymentStatus: { $in: ['Refund Initiated', 'Refunded'] }
+    })
+      .populate('user', 'name email')
+      .sort({ createdAt: -1 });
+
+    const csvData = refunds.map(order => ({
+      'Order ID': order.orderNumber,
+      'Refund ID': order.refundId || 'N/A',
+      'Customer': order.user?.name || order.shippingAddress?.fullName,
+      'Email': order.user?.email || 'N/A',
+      'Amount': `$${(order.refundAmount || order.totalAmount).toFixed(2)}`,
+      'Payment Method': order.paymentMethod,
+      'Status': order.paymentStatus,
+      'Reason': order.refundReason || 'N/A',
+      'Requested Date': new Date(order.createdAt).toLocaleDateString(),
+      'Refunded Date': order.refundedAt ? new Date(order.refundedAt).toLocaleDateString() : 'N/A',
+    }));
+
+    const json2csvParser = new Parser();
+    const csv = json2csvParser.parse(csvData);
+
+    res.header('Content-Type', 'text/csv');
+    res.header('Content-Disposition', `attachment; filename="refunds_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Export refunds error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 📊 Get Refund Statistics
+export const getRefundStats = async (req, res) => {
+  try {
+    const totalRefunded = await Order.aggregate([
+      { $match: { paymentStatus: 'Refunded' } },
+      { $group: { _id: null, total: { $sum: '$refundAmount' } } }
+    ]);
+
+    const totalPending = await Order.aggregate([
+      { $match: { paymentStatus: 'Refund Initiated' } },
+      { $group: { _id: null, total: { $sum: '$refundAmount' } } }
+    ]);
+
+    const totalCount = await Order.countDocuments({
+      paymentStatus: { $in: ['Refund Initiated', 'Refunded'] }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalRefunded: totalRefunded[0]?.total || 0,
+        totalPending: totalPending[0]?.total || 0,
+        totalCount,
+      }
+    });
+  } catch (error) {
+    console.error('Get refund stats error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+}
