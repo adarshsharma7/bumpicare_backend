@@ -16,6 +16,7 @@ export const getAllProducts = asyncHandler(async (req, res) => {
 
   const products = await Product.find(query)
     .populate("category")
+    .populate("seller", "name")
     .sort({ createdAt: -1 });
 
   return res
@@ -30,7 +31,9 @@ export const getAllProducts = asyncHandler(async (req, res) => {
 export const getSingleProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  const product = await Product.findById(id);
+  const product = await Product.findById(id)
+    .populate('category', 'name') // category name
+    .populate('seller', 'name');;
   if (!product) throw new ApiError(404, "Product not found");
 
   return res

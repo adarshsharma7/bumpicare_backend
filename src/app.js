@@ -59,7 +59,6 @@ app.use(cors({
     if (!origin) {
       return callback(null, true);
     }
-
     // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -160,6 +159,7 @@ import userRoutes from "./routes/user.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import cartRoutes from "./routes/cart.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
+import couponRouter from "./routes/coupon.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import paymentRoutes from "./routes/payment.routes.js";
 import productRoutes from "./routes/product.routes.js";
@@ -205,6 +205,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/cart", cartRoutes);
+app.use("/api/coupons", couponRouter);
 app.use("/api/category", categoryRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payment", paymentRoutes);
